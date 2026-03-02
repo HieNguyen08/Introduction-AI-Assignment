@@ -2,18 +2,6 @@
 
 ## 1. Tổng hợp ý tưởng (Kết hợp Ý tưởng #3 + #6)
 
-### Ý tưởng #3 - Hệ Thống Lập Kế Hoạch Du Lịch (Nguyễn Minh Hiếu)
-- Tìm kiếm: Uniform Cost để tìm lộ trình tối ưu giữa các điểm tham quan (tối thiểu chi phí/thời gian)
-- CSP: Giải quyết ràng buộc ngân sách, giờ mở cửa, phải có mặt tại bảo tàng trong khung giờ
-- Xác suất: Mạng Bayes dự đoán thời tiết (mưa dựa trên mùa và độ ẩm)
-- Học máy: Decision Tree phân loại nhà hàng từ rating người dùng
-
-### Ý tưởng #6 - Hệ Thống Gợi Ý Du Lịch Tối Ưu (Trần Ngọc Khánh Huy)
-- A* tìm route tối ưu, Heuristic: cost = tiền + thời gian
-- Rule-based: IF trời mưa → không outdoor
-- Bayes: xác suất user thích loại địa điểm
-- Decision Tree: phân loại user
-
 ### Ý tưởng kết hợp: **AI Travel Planner & Recommender System**
 
 Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân hoá lịch trình dựa trên ngân sách, thời gian, sở thích người dùng, và điều kiện thời tiết. Hệ thống tích hợp cả 5 thành phần AI theo yêu cầu đề bài:
