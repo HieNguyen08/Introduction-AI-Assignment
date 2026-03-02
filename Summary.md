@@ -1,18 +1,18 @@
 # Summary - Hệ Thống Lập Kế Hoạch & Gợi Ý Du Lịch Tối Ưu Bằng AI
 
-## 1. Tổng hợp ý tưởng (Kết hợp Ý tưởng #3 + #6)
+## 1. Ý tưởng 
 
-### Ý tưởng kết hợp: **AI Travel Planner & Recommender System**
+### Ý tưởng: **AI Travel Planner & Recommender System**
 
 Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân hoá lịch trình dựa trên ngân sách, thời gian, sở thích người dùng, và điều kiện thời tiết. Hệ thống tích hợp cả 5 thành phần AI theo yêu cầu đề bài:
 
 | Thành phần | Kết hợp từ | Mô tả |
 |---|---|---|
-| **(A) Tìm kiếm** | #3 (UCS) + #6 (A*) | Dùng **A*** với heuristic kết hợp chi phí + thời gian để tìm lộ trình tối ưu giữa các điểm du lịch. State = (vị trí hiện tại, tập điểm đã thăm, thời gian còn lại, ngân sách còn lại). |
-| **(B) CSP** | #3 (ràng buộc ngân sách/giờ) | **Backtracking + Forward Checking** để sắp xếp lịch trình thoả mãn: tổng chi phí <= ngân sách, giờ mở/đóng cửa, thời gian di chuyển giữa các điểm, số ngày giới hạn. |
-| **(C) Suy luận tri thức** | #6 (rule-based) | Hệ luật **IF-THEN**: IF trời mưa → loại bỏ hoạt động outdoor; IF ngân sách < ngưỡng → ưu tiên địa điểm miễn phí; IF người dùng là gia đình → loại bỏ nightlife. |
-| **(D) Mạng Bayes** | #3 (thời tiết) + #6 (sở thích user) | **Bayesian Network** mô hình hoá: P(mưa \| mùa, tỉnh, tháng), P(user thích địa điểm \| loại hình, rating, thời tiết). |
-| **(E) Học máy** | #3 (Decision Tree) + #6 (phân loại user) | **Decision Tree** phân loại người dùng thành nhóm (culture lover, adventure seeker, foodie...) + **Naive Bayes** dự đoán rating/đánh giá. |
+| **(A) Tìm kiếm** | (UCS) + (A*) | Dùng **A*** với heuristic kết hợp chi phí + thời gian để tìm lộ trình tối ưu giữa các điểm du lịch. State = (vị trí hiện tại, tập điểm đã thăm, thời gian còn lại, ngân sách còn lại). |
+| **(B) CSP** | (ràng buộc ngân sách/giờ) | **Backtracking + Forward Checking** để sắp xếp lịch trình thoả mãn: tổng chi phí <= ngân sách, giờ mở/đóng cửa, thời gian di chuyển giữa các điểm, số ngày giới hạn. |
+| **(C) Suy luận tri thức** | (rule-based) | Hệ luật **IF-THEN**: IF trời mưa → loại bỏ hoạt động outdoor; IF ngân sách < ngưỡng → ưu tiên địa điểm miễn phí; IF người dùng là gia đình → loại bỏ nightlife. |
+| **(D) Mạng Bayes** | (thời tiết) + #6 (sở thích user) | **Bayesian Network** mô hình hoá: P(mưa \| mùa, tỉnh, tháng), P(user thích địa điểm \| loại hình, rating, thời tiết). |
+| **(E) Học máy** | (Decision Tree) + #6 (phân loại user) | **Decision Tree** phân loại người dùng thành nhóm (culture lover, adventure seeker, foodie...) + **Naive Bayes** dự đoán rating/đánh giá. |
 
 ---
 
