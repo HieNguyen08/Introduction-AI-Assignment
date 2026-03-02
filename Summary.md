@@ -34,7 +34,7 @@ Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân 
 
 ## 3. Phân công công việc nhóm
 
-### Thành viên 1 (Bạn) — Thu thập, Lọc & Tiền xử lý Dữ liệu
+### Thành viên 1 — Thu thập, Lọc & Tiền xử lý Dữ liệu
 
 | Công việc | Mô tả | Kết quả đầu ra |
 |---|---|---|
