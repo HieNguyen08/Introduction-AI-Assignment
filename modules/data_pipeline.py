@@ -205,20 +205,29 @@ def load_travel_ratings():
 
 
 def load_traveler_trips():
-    """Load Traveler Trip Data."""
-    path = (find_csv(RAW_DIR, "traveler-trip")
-            or find_csv(RAW_DIR, "trip_data")
-            or find_csv(RAW_DIR, "trip"))
+    """Load Traveler Trip Data (Kaggle: rkiattisak/traveler-trip-data).
+    Actual file name on Kaggle: 'Travel details dataset.csv'
+    """
+    path = (find_csv(RAW_DIR, "travel details")
+            or find_csv(RAW_DIR, "traveler-trip")
+            or find_csv(RAW_DIR, "trip_data"))
     if path is None:
-        raise FileNotFoundError("Không tìm thấy Traveler Trips CSV trong data/raw/")
+        raise FileNotFoundError(
+            "Không tìm thấy Traveler Trips CSV trong data/raw/. "
+            "File cần tìm: 'Travel details dataset.csv' (kaggle: rkiattisak/traveler-trip-data)"
+        )
     df = pd.read_csv(path)
     print(f"[LOAD] Traveler Trips: {df.shape[0]:,} rows, {df.shape[1]} cols — {path}")
     return df
 
 
 def load_world_cities():
-    """Load Worldwide Travel Cities."""
-    path = find_csv(RAW_DIR, "cities") or find_csv(RAW_DIR, "worldwide")
+    """Load Worldwide Travel Cities (Kaggle: furkanima/worldwide-travel-cities-ratings-and-climate).
+    Actual file name: 'Worldwide Travel Cities Dataset (Ratings and Climate).csv'
+    """
+    path = (find_csv(RAW_DIR, "worldwide travel cities")
+            or find_csv(RAW_DIR, "cities dataset")
+            or find_csv(RAW_DIR, "ratings and climate"))
     if path is None:
         raise FileNotFoundError("Không tìm thấy World Cities CSV trong data/raw/")
     df = pd.read_csv(path)
@@ -378,9 +387,43 @@ def clean_hotel_reviews(df):
 def clean_travel_ratings(df):
     """
     Làm sạch Travel Review Ratings (UCI).
+    - Rename cột Category 1-24 thành tên mô tả.
     - 24 cột rating, chuẩn hoá, tạo nhãn traveler_type.
     """
     df = df.copy()
+
+    # Kaggle dataset dùng "Category 1" -> "Category 24" thay vì tên mô tả.
+    # Mapping theo thứ tự gốc UCI: https://archive.ics.uci.edu/dataset/485
+    CATEGORY_NAMES = {
+        "Category 1": "Churches",
+        "Category 2": "Resorts",
+        "Category 3": "Beaches",
+        "Category 4": "Parks",
+        "Category 5": "Theatres",
+        "Category 6": "Museums",
+        "Category 7": "Malls",
+        "Category 8": "Zoo",
+        "Category 9": "Restaurants",
+        "Category 10": "Pubs_Bars",
+        "Category 11": "Local_Services",
+        "Category 12": "Burger_Pizza",
+        "Category 13": "Hotels",
+        "Category 14": "Juice_Bars",
+        "Category 15": "Art_Galleries",
+        "Category 16": "Dance_Clubs",
+        "Category 17": "Swimming_Pools",
+        "Category 18": "Gyms",
+        "Category 19": "Bakeries",
+        "Category 20": "Beauty_Spas",
+        "Category 21": "Cafes",
+        "Category 22": "View_Points",
+        "Category 23": "Monuments",
+        "Category 24": "Gardens",
+    }
+    rename_map = {k: v for k, v in CATEGORY_NAMES.items() if k in df.columns}
+    if rename_map:
+        df = df.rename(columns=rename_map)
+        print(f"  Renamed {len(rename_map)} category columns to descriptive names")
 
     # Bỏ cột User Id nếu có (chỉ giữ nếu cần)
     category_cols = [c for c in df.columns if c not in ["User", "User Id", "Unnamed: 0"]]
