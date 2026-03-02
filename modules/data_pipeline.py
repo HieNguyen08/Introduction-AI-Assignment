@@ -6,7 +6,7 @@ Datasets:
   1. Vietnam Weather Data (181K records, 40 tỉnh, 2009-2021)
   2. 515K Hotel Reviews Europe
   3. Travel Review Ratings (UCI — 24 loại hình, 5456 users)
-  4. Traveler Trip Data (~21K trips)
+  4. Hotel Booking Demand (119K bookings — thay thế Traveler Trip Data)
   5. Worldwide Travel Cities Ratings & Climate (560 cities)
 
 Sử dụng trong Google Colab — tự động download từ Kaggle qua opendatasets.
@@ -34,7 +34,7 @@ KAGGLE_DATASETS = {
     "vietnam_weather": "vanviethieuanh/vietnam-weather-data",
     "hotel_reviews": "jiashenliu/515k-hotel-reviews-data-in-europe",
     "travel_ratings": "ishbhms/travel-review-ratings",
-    "traveler_trips": "rkiattisak/traveler-trip-data",
+    "hotel_bookings": "jessemostipak/hotel-booking-demand",
     "world_cities": "furkanima/worldwide-travel-cities-ratings-and-climate",
 }
 
@@ -184,7 +184,9 @@ def load_vietnam_weather():
 
 def load_hotel_reviews():
     """Load 515K Hotel Reviews."""
-    path = find_csv(RAW_DIR, "hotel")
+    path = (find_csv(RAW_DIR, "hotel_reviews")
+            or find_csv(RAW_DIR, "Hotel_Reviews")
+            or find_csv(RAW_DIR, "515k"))
     if path is None:
         raise FileNotFoundError("Không tìm thấy Hotel Reviews CSV trong data/raw/")
     df = pd.read_csv(path)
@@ -204,20 +206,20 @@ def load_travel_ratings():
     return df
 
 
-def load_traveler_trips():
-    """Load Traveler Trip Data (Kaggle: rkiattisak/traveler-trip-data).
-    Actual file name on Kaggle: 'Travel details dataset.csv'
+def load_hotel_bookings():
+    """Load Hotel Booking Demand (Kaggle: jessemostipak/hotel-booking-demand).
+    File: 'hotel_bookings.csv' (119,390 rows)
     """
-    path = (find_csv(RAW_DIR, "travel details")
-            or find_csv(RAW_DIR, "traveler-trip")
-            or find_csv(RAW_DIR, "trip_data"))
+    path = (find_csv(RAW_DIR, "hotel_bookings")
+            or find_csv(RAW_DIR, "hotel-booking-demand")
+            or find_csv(RAW_DIR, "booking"))
     if path is None:
         raise FileNotFoundError(
-            "Không tìm thấy Traveler Trips CSV trong data/raw/. "
-            "File cần tìm: 'Travel details dataset.csv' (kaggle: rkiattisak/traveler-trip-data)"
+            "Không tìm thấy Hotel Bookings CSV trong data/raw/. "
+            "File cần tìm: 'hotel_bookings.csv' (kaggle: jessemostipak/hotel-booking-demand)"
         )
     df = pd.read_csv(path)
-    print(f"[LOAD] Traveler Trips: {df.shape[0]:,} rows, {df.shape[1]} cols — {path}")
+    print(f"[LOAD] Hotel Bookings: {df.shape[0]:,} rows, {df.shape[1]} cols — {path}")
     return df
 
 
@@ -447,48 +449,72 @@ def clean_travel_ratings(df):
     return df
 
 
-def clean_traveler_trips(df):
+def clean_hotel_bookings(df):
     """
-    Làm sạch Traveler Trip Data.
-    - Parse dates, chuẩn hoá costs, tạo labels.
+    Làm sạch Hotel Booking Demand.
+    - Xử lý missing, tạo total_stays, tạo labels cho budget/season.
+    Columns: hotel, is_canceled, lead_time, arrival_date_year/month/week_number/day_of_month,
+             stays_in_weekend_nights, stays_in_week_nights, adults, children, babies, meal,
+             country, market_segment, distribution_channel, adr, customer_type, etc.
     """
     df = df.copy()
 
-    # Parse dates
-    for col in ["Start date", "End date"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+    # Xử lý missing
+    df["children"] = pd.to_numeric(df["children"], errors="coerce").fillna(0).astype(int)
+    df["babies"] = df["babies"].fillna(0).astype(int)
+    df["agent"] = df["agent"].replace("NULL", np.nan)
+    df["company"] = df["company"].replace("NULL", np.nan)
 
-    # Ensure Duration numeric
-    if "Duration (days)" in df.columns:
-        df["Duration (days)"] = pd.to_numeric(df["Duration (days)"], errors="coerce")
+    # Tạo tổng số đêm lưu trú
+    df["total_nights"] = df["stays_in_weekend_nights"] + df["stays_in_week_nights"]
 
-    # Ensure costs numeric
-    for col in ["Accommodation cost", "Transportation cost"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(r"[^\d.]", "", regex=True),
-                errors="coerce"
-            )
+    # Tổng số khách
+    df["total_guests"] = df["adults"] + df["children"] + df["babies"]
 
-    # Tổng chi phí
-    cost_cols = [c for c in ["Accommodation cost", "Transportation cost"] if c in df.columns]
-    if cost_cols:
-        df["total_cost"] = df[cost_cols].sum(axis=1)
-        df["budget_level"] = pd.cut(
-            df["total_cost"],
-            bins=[0, 500, 1500, 5000, float("inf")],
-            labels=["budget", "mid_range", "premium", "luxury"]
-        )
+    # ADR (Average Daily Rate) — loại bỏ giá trị âm hoặc cực đoan
+    df["adr"] = pd.to_numeric(df["adr"], errors="coerce")
+    df.loc[df["adr"] < 0, "adr"] = np.nan
+    df["adr"] = df["adr"].fillna(df["adr"].median())
 
-    # Cost per day
-    if "total_cost" in df.columns and "Duration (days)" in df.columns:
-        df["cost_per_day"] = df["total_cost"] / df["Duration (days)"].replace(0, np.nan)
+    # Tổng chi phí ước tính
+    df["total_cost"] = df["adr"] * df["total_nights"]
 
-    # Drop rows không hợp lệ
-    df = df.dropna(subset=[c for c in cost_cols if c in df.columns])
+    # Phân loại budget
+    df["budget_level"] = pd.cut(
+        df["total_cost"],
+        bins=[-1, 100, 300, 600, float("inf")],
+        labels=["budget", "mid_range", "premium", "luxury"]
+    )
 
-    print(f"[CLEAN] Traveler Trips: {df.shape[0]:,} rows, {df.shape[1]} cols")
+    # Tạo cột arrival_date từ các cột năm/tháng/ngày
+    month_map = {
+        "January": 1, "February": 2, "March": 3, "April": 4,
+        "May": 5, "June": 6, "July": 7, "August": 8,
+        "September": 9, "October": 10, "November": 11, "December": 12
+    }
+    df["arrival_month_num"] = df["arrival_date_month"].map(month_map)
+    df["arrival_date"] = pd.to_datetime(
+        df["arrival_date_year"].astype(str) + "-" +
+        df["arrival_month_num"].astype(str) + "-" +
+        df["arrival_date_day_of_month"].astype(str),
+        errors="coerce"
+    )
+
+    # Season
+    df["season"] = df["arrival_month_num"].map(
+        lambda m: "spring" if m in [3, 4, 5]
+        else "summer" if m in [6, 7, 8]
+        else "autumn" if m in [9, 10, 11]
+        else "winter"
+    )
+
+    # Loại bỏ bookings không có khách (lỗi dữ liệu)
+    df = df[df["total_guests"] > 0]
+
+    # Loại bỏ bookings 0 đêm (day-use, không phổ biến)
+    df = df[df["total_nights"] > 0]
+
+    print(f"[CLEAN] Hotel Bookings: {df.shape[0]:,} rows, {df.shape[1]} cols")
     return df
 
 
@@ -705,11 +731,11 @@ def run_full_pipeline(skip_download=False):
         print(f"[SKIP] Travel Ratings: {e}")
 
     try:
-        df_trips = clean_traveler_trips(load_traveler_trips())
-        save_cleaned(df_trips, "traveler_trips")
-        result["trips"] = df_trips
+        df_bookings = clean_hotel_bookings(load_hotel_bookings())
+        save_cleaned(df_bookings, "hotel_bookings")
+        result["bookings"] = df_bookings
     except Exception as e:
-        print(f"[SKIP] Traveler Trips: {e}")
+        print(f"[SKIP] Hotel Bookings: {e}")
 
     try:
         df_cities = clean_world_cities(load_world_cities())
