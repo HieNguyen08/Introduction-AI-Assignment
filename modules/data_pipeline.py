@@ -194,7 +194,9 @@ def load_hotel_reviews():
 
 def load_travel_ratings():
     """Load Travel Review Ratings (UCI)."""
-    path = find_csv(RAW_DIR, "google_review") or find_csv(RAW_DIR, "travel")
+    path = (find_csv(RAW_DIR, "google_review")
+            or find_csv(RAW_DIR, "review_rating")
+            or find_csv(RAW_DIR, "travel-review"))
     if path is None:
         raise FileNotFoundError("Không tìm thấy Travel Ratings CSV trong data/raw/")
     df = pd.read_csv(path)
@@ -204,7 +206,9 @@ def load_travel_ratings():
 
 def load_traveler_trips():
     """Load Traveler Trip Data."""
-    path = find_csv(RAW_DIR, "trip") or find_csv(RAW_DIR, "travel")
+    path = (find_csv(RAW_DIR, "traveler-trip")
+            or find_csv(RAW_DIR, "trip_data")
+            or find_csv(RAW_DIR, "trip"))
     if path is None:
         raise FileNotFoundError("Không tìm thấy Traveler Trips CSV trong data/raw/")
     df = pd.read_csv(path)
