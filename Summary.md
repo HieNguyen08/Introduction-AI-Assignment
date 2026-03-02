@@ -111,12 +111,13 @@ Hệ thống cần 4 nhóm dữ liệu chính:
 - **License**: CC BY 4.0
 - **Ghi chú**: Mỗi dòng là một user + rating 24 loại hình. Dùng Decision Tree/Naive Bayes phân loại traveler type.
 
-#### Dataset 5: Traveler Trip Dataset
-- **Nguồn**: https://www.kaggle.com/datasets/rkiattisak/traveler-trip-data
-- **Kích thước**: **~21,000+ records**, 13 cột
-- **Cột chính**: `Destination`, `Start date`, `End date`, `Duration (days)`, `Traveler age`, `Traveler gender`, `Traveler nationality`, `Accommodation type`, `Accommodation cost`, `Transportation type`, `Transportation cost`
-- **Phục vụ**: **(B) CSP** — ràng buộc ngân sách, thời gian, loại hình lưu trú/vận chuyển
+#### Dataset 5: Hotel Booking Demand (thay thế Traveler Trip Dataset)
+- **Nguồn**: https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand
+- **Kích thước**: **119,390 bookings**, 32 cột
+- **Cột chính**: `hotel` (Resort/City), `is_canceled`, `lead_time`, `arrival_date_year/month/day_of_month`, `stays_in_weekend_nights`, `stays_in_week_nights`, `adults`, `children`, `babies`, `meal`, `country`, `market_segment`, `distribution_channel`, `adr` (Average Daily Rate), `customer_type`, `deposit_type`, `reservation_status`
+- **Phục vụ**: **(B) CSP** — ràng buộc ngân sách (ADR, total_cost), thời gian lưu trú (total_nights), loại khách hàng, mùa du lịch
 - **License**: CC BY 4.0
+- **Ghi chú**: Thay thế Traveler Trip Dataset (chỉ có 139 rows thực tế, quá ít). Dataset mới có 119K rows, phong phú hơn cho phân tích budget/constraints.
 
 #### Dataset 6: Global Daily Climate Data (1833-nay)
 - **Nguồn**: https://www.kaggle.com/datasets/guillemservera/global-daily-climate-data
@@ -159,7 +160,7 @@ Hệ thống cần 4 nhóm dữ liệu chính:
 | 2 | Vietnam Weather Data | 181,960 records | (C) + (D) Suy luận + Bayes | **Có** |
 | 3 | 515K Hotel Reviews | 515,000 reviews | (E) Học máy | Không |
 | 4 | Travel Review Ratings | 5,456 users x 24 ratings | (E) Học máy | Không |
-| 5 | Traveler Trip Dataset | ~21,000 records | (B) CSP | Không |
+| 5 | Hotel Booking Demand | 119,390 bookings | (B) CSP | Không |
 | 6 | Global Daily Climate | 1,250 cities, 223 MB | (D) Mạng Bayes | Một phần |
 | 7 | Dynamic Tourism Route | Route data | (A) + (B) | Không |
 | 8 | SmartTourRoutePlanner | Route + constraints | (A) + (B) | Không |
@@ -174,7 +175,7 @@ Hệ thống cần 4 nhóm dữ liệu chính:
 2. **Foursquare OS Places** (lọc VN) — toạ độ POI để xây đồ thị, hàng trăm nghìn records
 3. **515K Hotel Reviews** — dataset lớn nhất cho ML (515K rows)
 4. **Travel Review Ratings** — cấu trúc hoàn hảo cho phân loại user (24 features)
-5. **Traveler Trip Dataset** — dữ liệu chi phí/thời gian cho CSP constraints
+5. **Hotel Booking Demand** — 119K bookings, dữ liệu chi phí (ADR)/thời gian lưu trú cho CSP constraints
 
 ---
 
@@ -188,7 +189,7 @@ data/
 │   ├── vietnam_weather.csv
 │   ├── hotel_reviews_515k.csv
 │   ├── travel_review_ratings.csv
-│   ├── traveler_trip_data.csv
+│   ├── hotel_bookings.csv
 │   ├── global_climate.parquet
 │   ├── tourism_route_dtrd.csv
 │   └── worldwide_cities.csv
@@ -210,7 +211,7 @@ data/
 - **Từ Weather**: tính P(rain | province, month) → cho Bayesian Network
 - **Từ Reviews**: TF-IDF vectorization, word count, sentiment score → cho Decision Tree/Naive Bayes
 - **Từ Travel Ratings**: normalize ratings, tạo nhãn `traveler_type` bằng clustering → cho classification
-- **Từ Trip Data**: tạo nhãn `budget_level`, `trip_type` → cho CSP constraints
+- **Từ Hotel Bookings**: tạo `total_nights`, `total_cost`, `budget_level`, `season` → cho CSP constraints
 
 ### Bước 4: Xuất dữ liệu
 - Ma trận khoảng cách → `features/distance_matrix.npy`
@@ -259,7 +260,7 @@ File: `modules/data_pipeline.py`
 - `clean_vietnam_weather()` — Chuẩn hoá cột, parse date, xử lý missing (median theo tỉnh), tạo nhãn thời tiết (`is_rainy`, `outdoor_suitable`, `rain_level`, `is_hot`, `is_humid`)
 - `clean_hotel_reviews()` — Gộp review text, loại placeholder, tạo nhãn sentiment (4 mức + binary), tính text features (word_count, char_count)
 - `clean_travel_ratings()` — Chuyển numeric, fillna, tính `top_category`, `avg_rating`, `rating_std`
-- `clean_traveler_trips()` — Parse dates/costs, tính `total_cost`, `budget_level` (4 mức), `cost_per_day`
+- `clean_hotel_bookings()` — Xử lý missing, tạo `total_nights`, `total_guests`, `total_cost` (ADR × nights), `budget_level` (4 mức), `arrival_date`, `season`
 - `clean_world_cities()` — Chuẩn hoá cột rating/toạ độ
 - `haversine()` — Tính khoảng cách giữa 2 toạ độ GPS (km)
 - `build_distance_matrix()` — Ma trận khoảng cách 30x30 điểm du lịch VN
@@ -286,7 +287,7 @@ File: `modules/data_pipeline.py`
    - Phân bố reviewer score, sentiment, word count
    - Top quốc tịch reviewer
    - Rating trung bình 24 loại hình du lịch + correlation
-   - Chi phí, budget level, duration, top destinations
+   - ADR distribution, budget level, số đêm lưu trú, top quốc gia booking
 5. **Feature Engineering:**
    - Ma trận khoảng cách 30x30 → `distance_matrix.npy`
    - Ma trận chi phí → `cost_matrix.npy`
@@ -305,7 +306,7 @@ File: `modules/data_pipeline.py`
 | `data/cleaned/vietnam_weather.csv` | (C) + (D) | 181K rows, thời tiết VN đã xử lý |
 | `data/cleaned/hotel_reviews.csv` | (E) | 515K reviews đã xử lý + sentiment labels |
 | `data/cleaned/travel_ratings.csv` | (E) | 5,456 users x 24 ratings + top_category |
-| `data/cleaned/traveler_trips.csv` | (B) | ~21K trips + total_cost + budget_level |
+| `data/cleaned/hotel_bookings.csv` | (B) | 118K bookings + total_cost + budget_level + season |
 | `data/cleaned/world_cities.csv` | (E) | 560 cities + thematic ratings |
 | `data/features/distance_matrix.npy` | (A) | 30x30 khoảng cách (km) |
 | `data/features/cost_matrix.npy` | (A) + (B) | 30x30 chi phí (VND) |
