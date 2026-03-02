@@ -16,7 +16,7 @@ Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân 
 
 ---
 
-## 2. Đối chiếu với yêu cầu PDF (Cấu trúc bắt buộc)
+## 2. Yêu cầu PDF
 
 | Yêu cầu PDF | Đáp ứng | Chi tiết |
 |---|---|---|
@@ -32,10 +32,9 @@ Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân 
 
 ---
 
-## 3. Phân công công việc nhóm (3 người)
+## 3. Phân công công việc nhóm
 
 ### Thành viên 1 (Bạn) — Thu thập, Lọc & Tiền xử lý Dữ liệu
-**Tỷ lệ đóng góp dự kiến: ~33%**
 
 | Công việc | Mô tả | Kết quả đầu ra |
 |---|---|---|
@@ -46,7 +45,6 @@ Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân 
 | EDA (Exploratory Data Analysis) | Phân tích thống kê, trực quan hoá phân bố dữ liệu | Notebook EDA + biểu đồ |
 
 ### Thành viên 2 — Thuật toán Tìm kiếm + CSP + Suy luận tri thức
-**Tỷ lệ đóng góp dự kiến: ~33%**
 
 | Công việc | Mô tả | Kết quả đầu ra |
 |---|---|---|
@@ -56,7 +54,6 @@ Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân 
 | Tích hợp A+B+C | Kết nối 3 module thành pipeline: input → lọc luật → CSP → A* → output lịch trình | `modules/planner.py` |
 
 ### Thành viên 3 — Mạng Bayes + Học máy + Báo cáo
-**Tỷ lệ đóng góp dự kiến: ~33%**
 
 | Công việc | Mô tả | Kết quả đầu ra |
 |---|---|---|
@@ -223,7 +220,7 @@ data/
 
 ---
 
-## 6. Cấu trúc thư mục dự án (Theo yêu cầu PDF)
+## 6. Cấu trúc thư mục dự án
 
 ```
 Introduction-AI-Assignment/
