@@ -44,23 +44,35 @@ Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân 
 | Xây dựng data pipeline | Viết module Python tự động download + xử lý dữ liệu trong Colab | `modules/data_pipeline.py` |
 | EDA (Exploratory Data Analysis) | Phân tích thống kê, trực quan hoá phân bố dữ liệu | Notebook EDA + biểu đồ |
 
-### Thành viên 2 — Thuật toán Tìm kiếm + CSP + Suy luận tri thức
+### Thành viên 2 — Thuật toán Tìm kiếm + CSP
 
 | Công việc | Mô tả | Kết quả đầu ra |
 |---|---|---|
-| (A) Thuật toán A* | Cài đặt A* trên đồ thị địa điểm du lịch; thiết kế heuristic function | `modules/search.py` |
-| (B) CSP Solver | Cài đặt backtracking + forward checking cho ràng buộc lịch trình | `modules/csp_solver.py` |
-| (C) Hệ luật IF-THEN | Xây dựng knowledge base luật suy luận (thời tiết, ngân sách, nhóm user) | `modules/knowledge_base.py` |
-| Tích hợp A+B+C | Kết nối 3 module thành pipeline: input → lọc luật → CSP → A* → output lịch trình | `modules/planner.py` |
+| (A) Thuật toán A* | Cài đặt A* trên đồ thị địa điểm du lịch; thiết kế heuristic function (khoảng cách + chi phí + thời gian) | `modules/search.py` |
+| (B) CSP Solver | Cài đặt backtracking + forward checking cho ràng buộc lịch trình (ngân sách, giờ mở/đóng, thời gian di chuyển, số ngày) | `modules/csp_solver.py` |
+| Tích hợp A+B | Kết nối Search + CSP thành pipeline lập lịch trình: input constraints → CSP lọc → A* tìm route tối ưu | `modules/planner.py` |
 
-### Thành viên 3 — Mạng Bayes + Học máy + Báo cáo
+### Thành viên 3 — Suy luận tri thức + Mạng Bayes
 
 | Công việc | Mô tả | Kết quả đầu ra |
 |---|---|---|
-| (D) Bayesian Network | Xây dựng mạng Bayes cho dự đoán thời tiết + sở thích user | `modules/bayesian_net.py` |
-| (E) Decision Tree + Naive Bayes | Huấn luyện model phân loại user + dự đoán rating | `modules/ml_models.py` |
-| Tích hợp hệ thống | Kết nối tất cả module thành hệ thống hoàn chỉnh trên Colab | Notebook chính |
-| Viết báo cáo | Báo cáo PDF 10-20 trang theo cấu trúc yêu cầu | `reports/report.pdf` (Overleaf) |
+| (C) Hệ luật IF-THEN | Xây dựng knowledge base luật suy luận (thời tiết → loại bỏ outdoor, ngân sách → ưu tiên miễn phí, gia đình → loại nightlife) | `modules/knowledge_base.py` |
+| (D) Bayesian Network | Xây dựng mạng Bayes cho dự đoán thời tiết P(rain\|province,month) + sở thích user P(like\|category,rating) | `modules/bayesian_net.py` |
+| Tích hợp C+D | Kết nối IF-THEN rules với Bayesian Network: Bayes dự đoán → rules lọc → đề xuất hoạt động phù hợp | Tích hợp vào `modules/planner.py` |
+
+### Thành viên 4 — Học máy + Tích hợp hệ thống
+
+| Công việc | Mô tả | Kết quả đầu ra |
+|---|---|---|
+| (E) Decision Tree + Naive Bayes | Huấn luyện model phân loại user thành nhóm (culture lover, adventure seeker, foodie...) + dự đoán rating/sentiment | `modules/ml_models.py` |
+| Tích hợp hệ thống | Kết nối tất cả module (A→E) thành hệ thống hoàn chỉnh trên Colab: input user → ML phân loại → Bayes + Rules lọc → CSP + A* lập lịch → output | Notebook chính |
+| Testing & Demo | Kiểm thử end-to-end với nhiều kịch bản (budget thấp, gia đình, mùa mưa...), chuẩn bị demo | Notebook chính + test cases |
+
+### Báo cáo — Viết chung (cả 4 thành viên)
+
+| Công việc | Mô tả | Kết quả đầu ra |
+|---|---|---|
+| Viết báo cáo | Mỗi thành viên viết phần mình phụ trách, báo cáo PDF 10-20 trang theo cấu trúc yêu cầu | `reports/report.pdf` (Overleaf) |
 
 ---
 
@@ -231,10 +243,10 @@ Introduction-AI-Assignment/
 │   ├── data_pipeline.py           # (TV1) Download + xử lý dữ liệu
 │   ├── search.py                  # (TV2) Thuật toán A*
 │   ├── csp_solver.py              # (TV2) CSP backtracking
-│   ├── knowledge_base.py          # (TV2) Hệ luật IF-THEN
-│   ├── planner.py                 # (TV2) Tích hợp A+B+C
+│   ├── planner.py                 # (TV2) Tích hợp A+B → lập lịch trình
+│   ├── knowledge_base.py          # (TV3) Hệ luật IF-THEN
 │   ├── bayesian_net.py            # (TV3) Mạng Bayes
-│   └── ml_models.py               # (TV3) Decision Tree + Naive Bayes
+│   └── ml_models.py               # (TV4) Decision Tree + Naive Bayes
 ├── data/
 │   ├── raw/
 │   ├── cleaned/
@@ -322,15 +334,16 @@ File: `modules/data_pipeline.py`
 
 ## 8. Tiến độ hiện tại
 
-| Hạng mục | Trạng thái | Ghi chú |
-|---|---|---|
-| Chọn đề tài | Hoàn thành | Kết hợp ý tưởng #3 + #6 |
-| Đối chiếu yêu cầu PDF | Hoàn thành | Đáp ứng 5/5 thành phần |
-| Phân công nhóm | Hoàn thành | 3 người, mỗi người ~33% |
-| Research datasets | Hoàn thành | 10 datasets, tổng > 300 MB |
-| Viết module data_pipeline.py | Hoàn thành | Download + Clean + Feature Engineering |
-| Viết notebook (EDA + preprocessing) | Hoàn thành | 6 sections, 8+ biểu đồ, 14 feature files |
-| Cài đặt thuật toán (TV2) | Chưa bắt đầu | A* + CSP + IF-THEN |
-| Mạng Bayes + ML (TV3) | Chưa bắt đầu | Bayesian Network + Decision Tree + Naive Bayes |
-| Tích hợp hệ thống | Chưa bắt đầu | — |
-| Báo cáo | Chưa bắt đầu | — |
+| Hạng mục | Phụ trách | Trạng thái | Ghi chú |
+|---|---|---|---|
+| Chọn đề tài | Cả nhóm | Hoàn thành | Kết hợp ý tưởng #3 + #6 |
+| Đối chiếu yêu cầu PDF | Cả nhóm | Hoàn thành | Đáp ứng 5/5 thành phần |
+| Phân công nhóm | Cả nhóm | Hoàn thành | 4 người |
+| Research datasets | TV1 | Hoàn thành | 10 datasets, tổng > 300 MB |
+| Viết module data_pipeline.py | TV1 | Hoàn thành | Download + Clean + Feature Engineering |
+| Viết notebook (EDA + preprocessing) | TV1 | Hoàn thành | 6 sections, 11 biểu đồ, 14 feature files |
+| (A) A* Search + (B) CSP Solver | TV2 | Chưa bắt đầu | `search.py` + `csp_solver.py` + `planner.py` |
+| (C) IF-THEN Rules + (D) Bayesian Network | TV3 | Chưa bắt đầu | `knowledge_base.py` + `bayesian_net.py` |
+| (E) Decision Tree + Naive Bayes | TV4 | Chưa bắt đầu | `ml_models.py` |
+| Tích hợp hệ thống + Testing | TV4 | Chưa bắt đầu | Kết nối A→E, test end-to-end |
+| Báo cáo | Cả nhóm | Chưa bắt đầu | Mỗi người viết phần mình (Overleaf) |
