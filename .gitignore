@@ -1,0 +1,25 @@
+# Data files (too large for GitHub — downloaded at runtime in Colab)
+data/raw/**/*.csv
+data/raw/**/*.parquet
+data/cleaned/*.csv
+data/processed/*.png
+data/features/*.npy
+data/features/*.npz
+data/features/*.csv
+data/features/*.h5
+
+# Keep directory structure
+!data/raw/.gitkeep
+!data/cleaned/.gitkeep
+!data/processed/.gitkeep
+!data/features/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
