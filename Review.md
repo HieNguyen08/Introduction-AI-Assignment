@@ -200,7 +200,7 @@ Bước 4 — Tạo thêm features kỹ thuật
    → Các features này có thể tương quan với chất lượng review.
 ```
 
-**Lưu ý cho Thành viên 3 (ML):**
+**Lưu ý cho Thành viên 4 (ML):**
 - File cleaned: `data/cleaned/hotel_reviews.csv`
 - TF-IDF đã được tính sẵn: `data/features/review_tfidf.npz` (sparse matrix, 50K sample × 5000 features)
 - Nhãn nhị phân: `data/features/review_labels.npy`
@@ -273,9 +273,10 @@ Bước 4 — Loại bỏ rows không hợp lệ
 ```
 
 **Lưu ý cho Thành viên 2 (CSP):**
-- File cleaned: `data/cleaned/traveler_trips.csv`
-- Cột `budget_level` và `total_cost` dùng để thiết lập ràng buộc ngân sách trong CSP.
-- Cột `Duration (days)` dùng để ràng buộc thời gian.
+- File chính cho CSP: `data/cleaned/hotel_bookings.csv` (118K bookings, có `total_nights`, `total_cost`, `budget_level`, `season`)
+- File bổ sung: `data/cleaned/traveler_trips.csv` (21K trips, có `Duration (days)`, `cost_per_day` nếu cần tham chiếu thêm)
+- Cột `budget_level` và `total_cost` trong `hotel_bookings.csv` dùng để thiết lập ràng buộc ngân sách trong CSP.
+- Cột `total_nights` và `season` dùng để ràng buộc thời gian và mùa du lịch.
 
 ---
 
@@ -465,7 +466,9 @@ data/
 
 ## 7. Hướng dẫn sử dụng cho các thành viên
 
-### Thành viên 2 — Module Search (A) + CSP (B) + Knowledge Base (C)
+### Thành viên 2 — A* Search (A) + CSP Solver (B)
+
+**File cần tạo:** `modules/search.py`, `modules/csp_solver.py`, `modules/planner.py`
 
 **Cần load:**
 
@@ -478,14 +481,14 @@ dist_matrix = np.load('data/features/distance_matrix.npy')    # (30, 30) km
 cost_matrix = np.load('data/features/cost_matrix.npy')        # (30, 30) VND
 time_matrix = np.load('data/features/travel_time_matrix.npy') # (30, 30) hours
 
-# Thông tin điểm du lịch — cho state representation
+# Thông tin điểm du lịch — cho state representation trong A*
 df_places = pd.read_csv('data/features/vn_tourist_places.csv')
 
 # Thứ tự tên địa điểm (index 0-29 tương ứng với ma trận)
 place_names = df_places['place_name'].tolist()
 
-# Dữ liệu chuyến đi thực tế — cho ràng buộc CSP
-df_trips = pd.read_csv('data/cleaned/traveler_trips.csv')
+# Dữ liệu đặt phòng — cho ràng buộc CSP (ngân sách, thời gian lưu trú)
+df_bookings = pd.read_csv('data/cleaned/hotel_bookings.csv')
 ```
 
 **Cấu trúc `df_places` (30 hàng × 8 cột):**
@@ -495,25 +498,130 @@ df_trips = pd.read_csv('data/cleaned/traveler_trips.csv')
 | Ha Long Bay | 20.9101 | 107.1839 | nature | Quang Ninh | 0 | 3.0 | 7 | 17 |
 | ... | | | | | | | | |
 
+**Cấu trúc `df_bookings` (118K hàng — dữ liệu thực tế cho CSP):**
+
+| Cột | Mô tả |
+|---|---|
+| `adr` | Average Daily Rate (USD/đêm) |
+| `total_nights` | Tổng số đêm lưu trú |
+| `total_cost` | Chi phí ước tính = adr × total_nights |
+| `budget_level` | `budget` / `mid_range` / `premium` / `luxury` |
+| `season` | `spring` / `summer` / `autumn` / `winter` |
+| `arrival_date` | Ngày đến (datetime) |
+| `customer_type` | Loại khách (Transient, Contract, Group...) |
+
 **Ví dụ truy vấn:**
 ```python
-# Khoảng cách từ điểm 0 đến điểm 5
+# Khoảng cách và chi phí di chuyển giữa hai điểm
 i = place_names.index("Ha Long Bay")
 j = place_names.index("Imperial City Hue")
 print(f"Distance: {dist_matrix[i, j]:.1f} km")
 print(f"Travel time: {time_matrix[i, j]:.1f} hours")
 print(f"Travel cost: {cost_matrix[i, j]:,.0f} VND")
 
-# Lọc điểm miễn phí
-free_places = df_places[df_places['entry_fee_vnd'] == 0]
+# Lọc điểm theo giờ mở cửa (cho CSP ràng buộc thời gian)
+open_places = df_places[(df_places['opening_hour'] <= 8) & (df_places['closing_hour'] >= 18)]
 
-# Lọc điểm theo category cho rule C
-nature_places = df_places[df_places['category'] == 'nature']
+# Phân bố ngân sách thực tế (tham chiếu cho CSP constraints)
+budget_dist = df_bookings['budget_level'].value_counts()
+avg_cost_per_night = df_bookings.groupby('budget_level')['adr'].mean()
+```
+
+**State representation cho A\*:**
+```python
+# State = (vị_trí_hiện_tại, tập_điểm_đã_thăm, thời_gian_còn_lại, ngân_sách_còn_lại)
+# Ví dụ: (2, frozenset({0, 1}), 6.5, 1_500_000)
+# Nghĩa: đang ở điểm index 2, đã thăm điểm 0 và 1, còn 6.5 giờ, còn 1.5M VND
 ```
 
 ---
 
-### Thành viên 3 — Bayesian Network (D) + ML Models (E)
+### Thành viên 3 — IF-THEN Rules (C) + Bayesian Network (D)
+
+**File cần tạo:** `modules/knowledge_base.py`, `modules/bayesian_net.py`
+
+**Cần load:**
+
+```python
+import numpy as np
+import pandas as pd
+
+# === Cho Bayesian Network (D) ===
+weather_probs = pd.read_csv('data/features/weather_probabilities.csv')
+# Cấu trúc: province | month | p_rain | p_outdoor_ok | p_hot | p_humid
+
+# Truy vấn xác suất có điều kiện
+p_rain = weather_probs[
+    (weather_probs['province'].str.contains('Da Nang', case=False)) &
+    (weather_probs['month'] == 6)
+]['p_rain'].values[0]
+# → P(mưa | Đà Nẵng, tháng 6)
+
+# Dữ liệu thời tiết gốc (nếu cần tính lại hoặc kiểm tra)
+df_weather = pd.read_csv('data/cleaned/vietnam_weather.csv')
+# Cột quan trọng: province, month, season, is_rainy, outdoor_suitable, is_hot, is_humid, rain_mm, temp_max
+
+# === Cho IF-THEN Rules (C) ===
+df_places = pd.read_csv('data/features/vn_tourist_places.csv')
+# Cột quan trọng: place_name, category, entry_fee_vnd, opening_hour, closing_hour
+```
+
+**Bảng `weather_probabilities.csv` — cấu trúc đầy đủ:**
+
+```
+province    | month | p_rain | p_outdoor_ok | p_hot | p_humid
+Ha Noi      |   1   |  0.12  |    0.75      | 0.00  |  0.45
+Ha Noi      |   6   |  0.48  |    0.42      | 0.65  |  0.82
+Da Nang     |   9   |  0.62  |    0.31      | 0.45  |  0.85
+...
+```
+
+**Ví dụ cài đặt Knowledge Base — IF-THEN Rules (C):**
+```python
+def apply_rules(places_df, weather_info, user_profile):
+    result = places_df.copy()
+
+    # Rule 1: IF mưa nặng → loại bỏ outdoor
+    if weather_info['is_rainy'] and weather_info['rain_mm'] > 10:
+        result = result[~result['category'].isin(['nature', 'beach', 'adventure'])]
+
+    # Rule 2: IF ngân sách thấp → ưu tiên miễn phí
+    if user_profile['budget_level'] == 'budget':
+        result = result.sort_values('entry_fee_vnd')
+
+    # Rule 3: IF gia đình có trẻ em → loại bỏ nightlife
+    if user_profile['group_type'] == 'family':
+        result = result[result['category'] != 'entertainment']
+
+    return result
+```
+
+**Ví dụ cài đặt Bayesian Network (D):**
+```python
+def get_weather_probability(province, month, weather_probs_df):
+    row = weather_probs_df[
+        (weather_probs_df['province'].str.contains(province, case=False)) &
+        (weather_probs_df['month'] == month)
+    ]
+    return {
+        'p_rain':       row['p_rain'].values[0],
+        'p_outdoor_ok': row['p_outdoor_ok'].values[0],
+        'p_hot':        row['p_hot'].values[0],
+        'p_humid':      row['p_humid'].values[0],
+    }
+```
+
+**Ngưỡng định nghĩa nhãn thời tiết (để cài đặt rules đúng):**
+- `is_rainy` → `rain_mm > 1.0` (tiêu chuẩn WMO)
+- `outdoor_suitable` → `rain_mm ≤ 5 AND temp_max ≤ 38 AND humidity ≤ 90`
+- `is_hot` → `temp_max > 35` (ngưỡng nắng nóng theo KTTV Việt Nam)
+- `is_humid` → `humidity > 80`
+
+---
+
+### Thành viên 4 — Decision Tree + Naive Bayes (E) + Tích hợp hệ thống
+
+**File cần tạo:** `modules/ml_models.py` + hoàn thiện notebook chính (`notebooks/main_notebook.ipynb`)
 
 **Cần load:**
 
@@ -522,23 +630,20 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-# === Cho Bayesian Network (D) ===
-weather_probs = pd.read_csv('data/features/weather_probabilities.csv')
-# Truy vấn: P(rain | province="Da Nang", month=6)
-p = weather_probs[
-    (weather_probs['province'].str.contains('Da Nang')) &
-    (weather_probs['month'] == 6)
-]['p_rain'].values[0]
+# === Cho Sentiment Classification (E) — Naive Bayes ===
+X_tfidf = sparse.load_npz('data/features/review_tfidf.npz')  # (50000, 5000) sparse
+y_labels = np.load('data/features/review_labels.npy')         # (50000,) binary (0/1)
+y_scores = np.load('data/features/review_scores.npy')         # (50000,) điểm 0-10
 
-# === Cho ML — Sentiment (E) ===
-X_tfidf = sparse.load_npz('data/features/review_tfidf.npz')  # (50000, 5000)
-y_labels = np.load('data/features/review_labels.npy')         # (50000,) binary
-y_scores = np.load('data/features/review_scores.npy')         # (50000,) 0-10
+# === Cho User Classification (E) — Decision Tree ===
+X_users = np.load('data/features/user_features.npy')          # (5456, 24) đã StandardScale
+y_clusters = np.load('data/features/user_cluster_labels.npy') # (5456,) nhãn 0-4
 
-# === Cho ML — User Classification (E) ===
-X_users = np.load('data/features/user_features.npy')          # (5456, 24) scaled
-y_clusters = np.load('data/features/user_cluster_labels.npy') # (5456,) 0-4
+# Tên cột 24 categories (dùng làm feature names cho Decision Tree)
 df_ratings = pd.read_csv('data/cleaned/travel_ratings_clustered.csv')
+feature_cols = [c for c in df_ratings.columns
+                if c not in ['User Id', 'cluster', 'top_category',
+                             'avg_rating', 'rating_std', 'num_rated']]
 ```
 
 **Lưu ý quan trọng về thang điểm:**
@@ -546,10 +651,62 @@ df_ratings = pd.read_csv('data/cleaned/travel_ratings_clustered.csv')
 | Nguồn | Thang điểm | Đã xử lý thành |
 |---|---|---|
 | Hotel Reviews (`Reviewer_Score`) | 0.0 – 10.0 | `sentiment_binary` (0/1, ngưỡng 7.0) |
-| Travel Ratings (UCI) | 1.0 – 5.0 | Đã StandardScale về mean=0, std=1 |
+| Travel Ratings (UCI) | 1.0 – 5.0 | Đã StandardScale về mean=0, std=1 trong `user_features.npy` |
 | World Cities | 0–100 hoặc 1–5 | Chỉ chuyển về numeric, chưa scale thêm |
 
 > **KHÔNG** so sánh điểm giữa các dataset này trực tiếp. Mỗi dataset có domain độc lập.
+
+**Phân loại 5 nhóm khách du lịch (nhãn cluster 0–4):**
+```python
+# Tên nhóm đặt dựa trên centroid K-Means — kiểm tra lại bằng kmeans.cluster_centers_
+CLUSTER_NAMES = {
+    0: "culture_lover",    # Museums, Theatres, Art galleries, Monuments
+    1: "adventure_seeker", # Parks, Resorts, Beaches, View points
+    2: "nature_eco",       # Zoos, Gardens, Parks, Beaches
+    3: "foodie_social",    # Restaurants, Cafes, Pubs/bars, Malls
+    4: "balanced"          # Rating trải đều các loại hình
+}
+```
+
+**Quy trình huấn luyện gợi ý:**
+```python
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+
+# --- Decision Tree: phân loại nhóm khách ---
+X_tr, X_te, y_tr, y_te = train_test_split(
+    X_users, y_clusters, test_size=0.2, random_state=42
+)
+dt = DecisionTreeClassifier(max_depth=5, random_state=42)
+dt.fit(X_tr, y_tr)
+print(classification_report(y_te, dt.predict(X_te)))
+
+# --- Naive Bayes: phân loại sentiment review ---
+# X_tfidf là sparse matrix → dùng MultinomialNB
+X_tr2, X_te2, y_tr2, y_te2 = train_test_split(
+    X_tfidf, y_labels, test_size=0.2, random_state=42
+)
+nb = MultinomialNB()
+nb.fit(X_tr2, y_tr2)
+print(classification_report(y_te2, nb.predict(X_te2)))
+```
+
+**Hướng dẫn tích hợp hệ thống (pipeline end-to-end):**
+```
+Input từ user:
+  province, budget (VND), num_days, group_type (solo/couple/family/group)
+
+Pipeline:
+  1. ML — Decision Tree (TV4): phân loại user → traveler_type (cluster 0-4)
+  2. Bayes (TV3):              dự đoán thời tiết → p_rain, p_outdoor_ok
+  3. IF-THEN Rules (TV3):     lọc địa điểm phù hợp (thời tiết + ngân sách + nhóm)
+  4. CSP — Backtracking (TV2): kiểm tra ràng buộc (budget, total_nights, giờ mở cửa)
+  5. A* Search (TV2):          tìm lộ trình tối ưu trên đồ thị 30 điểm du lịch
+
+Output: lịch trình chi tiết từng ngày + giải thích lý do chọn từng địa điểm
+```
 
 ---
 
