@@ -37,7 +37,7 @@ Xây dựng hệ thống AI lập kế hoạch du lịch thông minh, cá nhân 
 
 1. Mở notebook qua link Colab bên dưới (hoặc upload file `notebooks/main_notebook.ipynb`).
 2. Chọn **Runtime → Run all**.
-3. Khi được hỏi Kaggle API key, nhập `username` và `key` từ file `kaggle.json` (tải tại [kaggle.com/settings](https://www.kaggle.com/settings) → API → Create New Token).
+3. Khi được hỏi Kaggle API key, nhập `username` và `key` từ file `kaggle.json` (tải tại [kaggle.com/settings](https://www.kaggle.com/settings) → API → Generate New Token).
 4. Notebook sẽ tự động clone repo, tải dữ liệu, xử lý và xuất kết quả.
 
 ### Trên máy local
