@@ -15,7 +15,7 @@
 | STT | Họ tên | MSSV | Email |
 |-----|--------|------|-------|
 | 1 | Nguyễn Minh Hiếu | 2153343 | hieu.nguyen080203@hcmut.edu.vn |
-| 2 | Trần Ngọc Khánh Huy | 2153343 | hieu.nguyen080203@hcmut.edu.vn |
+| 2 | Trần Ngọc Khánh Huy | 2252265 | huy.tranrosenberg@hcmut.edu.vn |
 | 3 | Phan Thảo Vy | 2153343 | hieu.nguyen080203@hcmut.edu.vn |
 | 4 | Hoàng Thiện Nhân | 2153343 | hieu.nguyen080203@hcmut.edu.vn |
 
