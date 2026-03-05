@@ -332,7 +332,163 @@ File: `modules/data_pipeline.py`
 
 ---
 
-## 8. Tiến độ hiện tại
+## 8. Chi tiết phần đã thực hiện (Thành viên 3)
+
+### 8.1 Module `knowledge_base.py` — Thành phần (C)
+File: `modules/knowledge_base.py`
+
+**Mô tả:** Hệ luật IF-THEN (Rule-Based Expert System) sử dụng Forward Chaining inference engine để lọc và đánh giá địa điểm du lịch dựa trên ngữ cảnh (thời tiết, ngân sách, nhóm du khách, sở thích).
+
+**Classes chính:**
+
+| Class / Function | Mô tả |
+|---|---|
+| `Rule` | Đại diện 1 luật IF-THEN (condition_fn, action_fn, priority) |
+| `KnowledgeBase` | Chứa tập 18 luật, sắp xếp theo priority, inference engine |
+| `create_context()` | Helper tạo context dict chuẩn cho inference |
+| `filter_places_by_weather()` | Lọc chỉ dựa trên thời tiết |
+| `filter_places_full()` | Lọc đầy đủ (thời tiết + ngân sách + nhóm + sở thích) |
+
+**18 luật IF-THEN đã cài đặt:**
+
+| ID | Tên luật | Điều kiện IF | Hành động THEN | Priority |
+|---|---|---|---|---|
+| R1 | Mưa to → Loại outdoor | rain_mm > 10mm | Loại bỏ nature, beach, adventure | 1 |
+| R2 | Mưa vừa → Cảnh báo | 5mm < rain ≤ 10mm | Giảm weather_score outdoor (×0.5) | 2 |
+| R3 | Nóng > 35°C | temp_max > 35 | Ưu tiên indoor/beach, giảm adventure | 3 |
+| R4 | Lạnh < 15°C | temp_min < 15 | Gợi ý áo ấm, tăng culture/entertainment | 4 |
+| R5 | Ẩm > 80% | humidity > 80 | Giảm weather_score outdoor (×0.8) | 5 |
+| R6 | Gió mạnh | wind_speed > 40km/h | Loại bỏ adventure | 1 |
+| R7 | Ngân sách thấp | budget < 500K VND | Loại điểm phí > 30% budget | 2 |
+| R8 | Ngân sách TB | 500K ≤ budget < 2M | Loại điểm phí > 500K | 3 |
+| R9 | Gia đình | group_type == "family" | Loại adventure nguy hiểm (phí > 1M) | 3 |
+| R10 | Cặp đôi | group_type == "couple" | Tăng preference_score beach/nature (×1.3) | 4 |
+| R11 | Nhóm bạn | group_type == "friends" | Tăng adventure/entertainment/beach (×1.3) | 4 |
+| R12 | Mùa mưa | season ∈ {summer, autumn} | Tăng indoor (×1.2), giảm outdoor (×0.8) | 5 |
+| R13 | Thời tiết đẹp | outdoor_suitable == True | Tăng outdoor (×1.3) | 6 |
+| R14 | Thích văn hóa | "culture" ∈ preferences | Tăng culture (×1.4) | 6 |
+| R15 | Thích phiêu lưu | "adventure" ∈ preferences | Tăng adventure/nature (×1.4) | 6 |
+| R16 | Thích biển | "beach" ∈ preferences | Tăng beach (×1.5) | 6 |
+| R17 | Trip ngắn | num_days ≤ 2 | Ưu tiên cùng tỉnh (×1.5) | 4 |
+| R18 | Giờ mở cửa | current_hour != None | Loại điểm đã đóng/chưa mở | 2 |
+
+**Ngưỡng thời tiết (khớp với data_pipeline):**
+- `is_rainy` → rain_mm > 1.0 (tiêu chuẩn WMO)
+- `outdoor_suitable` → rain_mm ≤ 5 AND temp_max ≤ 38 AND humidity ≤ 90
+- `is_hot` → temp_max > 35 (ngưỡng nắng nóng KTTV Việt Nam)
+- `is_humid` → humidity > 80
+
+**Context dict (đầu vào cho inference):**
+```python
+context = {
+    "rain_mm": float,           # Lượng mưa (mm)
+    "temp_max": float,          # Nhiệt độ cao nhất (°C)
+    "temp_min": float,          # Nhiệt độ thấp nhất (°C)
+    "humidity": float,          # Độ ẩm (%)
+    "wind_speed": float,        # Tốc độ gió (km/h)
+    "budget_vnd": float,        # Ngân sách (VND)
+    "group_type": str,          # "solo" | "couple" | "family" | "friends"
+    "season": str,              # "spring" | "summer" | "autumn" | "winter"
+    "outdoor_suitable": bool,   # Thời tiết phù hợp outdoor
+    "user_preferences": list,   # ["culture", "beach", "adventure", ...]
+    "num_days": int,            # Số ngày du lịch
+    "current_hour": int|None,   # Giờ hiện tại (0-23)
+    "current_province": str,    # Tỉnh hiện tại
+}
+```
+
+### 8.2 Module `bayesian_net.py` — Thành phần (D)
+File: `modules/bayesian_net.py`
+
+**Mô tả:** Mạng Bayes (Bayesian Network) mô hình hoá xác suất thời tiết và sở thích du khách, sử dụng CPT (Conditional Probability Table) được xây dựng từ 181K records dữ liệu thời tiết Việt Nam.
+
+**Cấu trúc mạng Bayes (5 nodes):**
+```
+Province, Month → Rain          (CPT: 480 entries — 40 tỉnh × 12 tháng)
+Province, Month → Outdoor_OK    (CPT: 480 entries)
+Province, Month → Hot           (CPT: 480 entries)
+Province, Month → Humid         (CPT: 480 entries)
+Category, Group_Type, Is_Rain → User_Like  (CPT: 40 entries — 5 cat × 4 group × 2 rain)
+```
+
+**Classes chính:**
+
+| Class / Function | Mô tả |
+|---|---|
+| `BayesNode` | 1 node trong mạng (tên, parents, CPT) |
+| `BayesianNetwork` | Toàn bộ mạng, build từ data, query & scoring |
+| `integrate_bayes_kb()` | Hàm tích hợp C+D (Bayes → Rules → Scoring) |
+
+**Chức năng đã cài đặt:**
+- `build_from_data(weather_probs_df)` — Xây dựng 5 nodes + CPT từ bảng xác suất thời tiết
+- `query_rain(province, month)` — P(rain \| province, month)
+- `query_outdoor(province, month)` — P(outdoor_suitable \| province, month)
+- `query_hot(province, month)` — P(hot \| province, month)
+- `query_humid(province, month)` — P(humid \| province, month)
+- `query_weather_full(province, month)` — Truy vấn tất cả biến thời tiết
+- `query_user_preference(category, group_type, is_rain)` — P(user_like \| ...)
+- `score_places(places_df, month, group_type)` — Tính bayesian_score cho tất cả điểm
+- `predict_best_month(province, category, group_type)` — Dự đoán tháng tốt nhất du lịch
+- `print_network()` — In cấu trúc mạng
+
+**Công thức Bayesian Score:**
+- Outdoor (nature, beach, adventure): `Score = P(outdoor_ok | province, month) × P(user_like)`
+- Indoor (culture, entertainment): `Score = P(user_like) × 0.9 + 0.1`
+- Trong đó: `P(user_like) = P(like|rain)×P(rain) + P(like|¬rain)×P(¬rain)` (Total probability)
+
+### 8.3 Tích hợp C+D vào `planner.py`
+File: `modules/planner.py`
+
+**Mô tả:** Module tích hợp trung tâm, kết nối (C) Knowledge Base + (D) Bayesian Network thành pipeline lọc và xếp hạng địa điểm. Cấu trúc sẵn sàng cho TV2 thêm (A) A* Search + (B) CSP.
+
+**Pipeline tích hợp C+D:**
+```
+Input (province, month, group_type, budget, preferences)
+  → (D) Bayes dự đoán P(rain|province,month), P(outdoor|...)
+  → Chuyển xác suất thành weather context (expected values)
+  → (C) IF-THEN Forward Chaining lọc địa điểm
+  → (D) Bayesian scoring xếp hạng điểm còn lại
+  → Output (ranked places + metadata + explanations)
+```
+
+**Chức năng đã cài đặt:**
+- `filter_and_rank_places()` — Hàm chính: lọc + xếp hạng (gọi integrate_bayes_kb)
+- `get_weather_recommendation()` — Khuyến nghị thời tiết cho tỉnh/tháng
+- `find_best_travel_month()` — Tìm tháng tốt nhất du lịch
+- `plan_trip()` — Lập kế hoạch du lịch đầy đủ (greedy day-assignment, TODO: TV2 thay bằng A*+CSP)
+
+### 8.4 Notebook — Section 5 + 6
+File: `notebooks/main_notebook.ipynb` (21 cells mới)
+
+**Section 5: Component (C) — Knowledge Base IF-THEN Rules**
+- Import + hiển thị bảng 18 luật
+- Kịch bản 1: Mưa to (15mm) + Gia đình + Budget 400K → loại outdoor, loại phí cao
+- Kịch bản 2: Thời tiết đẹp + Cặp đôi + Budget 5M → ưu tiên beach/nature
+- Kịch bản 3: Gió mạnh (45km/h) + Nhóm bạn + Adventure → loại adventure nguy hiểm
+
+**Section 6: Component (D) — Bayesian Network**
+- Xây dựng mạng Bayes từ `weather_probabilities.csv`
+- Truy vấn P(rain) cho 6 tỉnh × 5 tháng
+- Dự đoán tháng tốt nhất du lịch biển Nha Trang + biểu đồ
+- Bayesian scoring 30 điểm du lịch (tháng 3, cặp đôi) + biểu đồ ranking
+- Tích hợp C+D — 3 kịch bản end-to-end:
+  - Đà Nẵng tháng 8 (gia đình, budget 3M, beach/culture)
+  - Lâm Đồng tháng 12 (solo, budget 5M, adventure/nature)
+  - Hà Nội tháng 3 (cặp đôi, budget 2M, culture)
+
+### 8.5 Kết nối với các thành viên khác
+
+| Từ module | Sử dụng | Cho module |
+|---|---|---|
+| `data_pipeline.py` (TV1) | `build_places_dataframe()`, `build_weather_probability_table()`, `VN_TOURIST_PLACES` | `knowledge_base.py`, `bayesian_net.py` |
+| `knowledge_base.py` (TV3) | `filter_places_full()`, `KnowledgeBase` | `planner.py`, notebook |
+| `bayesian_net.py` (TV3) | `integrate_bayes_kb()`, `BayesianNetwork` | `planner.py`, notebook |
+| `planner.py` (TV3→TV2) | `filter_and_rank_places()` | TV2 sẽ gọi trước khi A*/CSP |
+| `planner.py` (TV3→TV4) | `plan_trip()` | TV4 sẽ tích hợp ML user classification |
+
+---
+
+## 9. Tiến độ hiện tại
 
 | Hạng mục | Phụ trách | Trạng thái | Ghi chú |
 |---|---|---|---|
