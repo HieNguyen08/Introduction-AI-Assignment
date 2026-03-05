@@ -343,7 +343,7 @@ File: `modules/data_pipeline.py`
 | Viết module data_pipeline.py | TV1 | Hoàn thành | Download + Clean + Feature Engineering |
 | Viết notebook (EDA + preprocessing) | TV1 | Hoàn thành | 6 sections, 11 biểu đồ, 14 feature files |
 | (A) A* Search + (B) CSP Solver | TV2 | Chưa bắt đầu | `search.py` + `csp_solver.py` + `planner.py` |
-| (C) IF-THEN Rules + (D) Bayesian Network | TV3 | Chưa bắt đầu | `knowledge_base.py` + `bayesian_net.py` |
+| (C) IF-THEN Rules + (D) Bayesian Network | TV3 | **Hoàn thành** | `knowledge_base.py` (18 luật IF-THEN) + `bayesian_net.py` (5 nodes Bayes) + tích hợp C+D |
 | (E) Decision Tree + Naive Bayes | TV4 | Chưa bắt đầu | `ml_models.py` |
 | Tích hợp hệ thống + Testing | TV4 | Chưa bắt đầu | Kết nối A→E, test end-to-end |
 | Báo cáo | Cả nhóm | Chưa bắt đầu | Mỗi người viết phần mình (Overleaf) |
