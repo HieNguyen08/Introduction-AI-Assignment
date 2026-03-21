@@ -3,16 +3,28 @@ data_pipeline.py — Module thu thập, làm sạch, và tiền xử lý dữ li
 cho dự án AI Travel Planner & Recommender System.
 
 Datasets:
-  1. Vietnam Weather Data (181K records, 40 tỉnh, 2009-2021)
-  2. 515K Hotel Reviews Europe
-  3. Travel Review Ratings (UCI — 24 loại hình, 5456 users)
-  4. Hotel Booking Demand (119K bookings — thay thế Traveler Trip Data)
-  5. Worldwide Travel Cities Ratings & Climate (560 cities)
+  1. Vietnam Weather Data (181K records, 40 tỉnh, 2009-2021) — Vietnam-specific
+  2. 515K Hotel Reviews Europe — used for ML sentiment training (see NOTE below)
+  3. Travel Review Ratings (UCI — 24 loại hình, 5456 users) — worldwide user preferences
+  4. Hotel Booking Demand (119K bookings) — worldwide booking patterns
+  5. Worldwide Travel Cities Ratings & Climate (560 cities) — city classification
+
+NOTE on geographic scope:
+  Datasets 2-5 are worldwide/European, NOT Vietnam-specific. This is intentional:
+  - No large, open Vietnam hotel review or booking datasets exist on Kaggle/UCI.
+  - These datasets are used to train general ML models (sentiment, classification,
+    user clustering). The techniques (TF-IDF, Decision Tree, Naive Bayes) are
+    domain-agnostic and transfer across geographies.
+  - Vietnam-specific data (weather, 30 tourist places, distance/cost matrices)
+    is already covered by Dataset 1 and the built-in VN_TOURIST_PLACES constants.
+  - Switching to a small 20K Vietnamese review dataset would reduce ML training
+    quality by 25x with no meaningful gain for the AI components.
 
 Sử dụng trong Google Colab — tự động download từ Kaggle qua opendatasets.
 """
 
 import os
+import logging
 import warnings
 import numpy as np
 import pandas as pd
@@ -21,7 +33,17 @@ from math import radians, sin, cos, sqrt, atan2
 warnings.filterwarnings("ignore")
 
 # ============================================================
-# 0. CONSTANTS
+# LOGGING SETUP
+# ============================================================
+logger = logging.getLogger("data_pipeline")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
+
+# ============================================================
+# 0. CONSTANTS & CONFIGURATION
 # ============================================================
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,6 +51,29 @@ RAW_DIR = os.path.join(BASE_DIR, "data", "raw")
 CLEANED_DIR = os.path.join(BASE_DIR, "data", "cleaned")
 PROCESSED_DIR = os.path.join(BASE_DIR, "data", "processed")
 FEATURES_DIR = os.path.join(BASE_DIR, "data", "features")
+
+# --- Configurable parameters (teammates: adjust these as needed) ---
+TRAVEL_COST_PER_KM = 3000       # VND — average cost per km (bus/taxi)
+TRAVEL_AVG_SPEED_KMH = 40       # km/h — average road speed in Vietnam
+DEFAULT_VISIT_HOURS = {          # hours per place category
+    "culture": 2.0,
+    "entertainment": 2.0,
+    "nature": 3.0,
+    "beach": 3.0,
+    "adventure": 3.0,
+}
+DEFAULT_OPENING_HOURS = {        # (open, close) per category
+    "entertainment": (9, 22),
+    "_default": (7, 17),
+}
+RAIN_THRESHOLD_MM = 1.0          # mm — above this = rainy
+HUMIDITY_THRESHOLD = 80          # % — above this = humid
+TEMPERATURE_HOT_THRESHOLD = 35   # °C — above this = hot
+OUTDOOR_LIMITS = {               # thresholds for outdoor_suitable flag
+    "max_rain_mm": 5,
+    "max_temp": 38,
+    "max_humidity": 90,
+}
 
 KAGGLE_DATASETS = {
     "vietnam_weather": "vanviethieuanh/vietnam-weather-data",
@@ -143,20 +188,20 @@ def download_all_datasets(use_opendatasets=True):
 
         for name, dataset_id in KAGGLE_DATASETS.items():
             url = f"https://www.kaggle.com/datasets/{dataset_id}"
-            print(f"\n[DOWNLOAD] {name}: {url}")
+            logger.info("DOWNLOAD %s: %s", name, url)
             try:
                 od.download(url, data_dir=RAW_DIR)
-                print(f"  -> OK")
+                logger.info("  -> OK")
             except Exception as e:
-                print(f"  -> ERROR: {e}")
+                logger.error("  -> ERROR: %s", e)
     else:
-        print("Dùng Kaggle CLI: kaggle datasets download -d <dataset_id>")
+        logger.info("Dùng Kaggle CLI: kaggle datasets download -d <dataset_id>")
         for name, dataset_id in KAGGLE_DATASETS.items():
             cmd = f'kaggle datasets download -d {dataset_id} -p "{RAW_DIR}" --unzip'
-            print(f"  {cmd}")
+            logger.info("  %s", cmd)
             os.system(cmd)
 
-    print("\n[DONE] Tất cả datasets đã được tải về:", RAW_DIR)
+    logger.info("DONE — Tất cả datasets đã được tải về: %s", RAW_DIR)
 
 
 def find_csv(raw_dir, keyword):
@@ -178,7 +223,7 @@ def load_vietnam_weather():
     if path is None:
         raise FileNotFoundError("Không tìm thấy Vietnam Weather CSV trong data/raw/")
     df = pd.read_csv(path)
-    print(f"[LOAD] Vietnam Weather: {df.shape[0]:,} rows, {df.shape[1]} cols — {path}")
+    logger.info("LOAD Vietnam Weather: %s rows, %d cols — %s", f"{df.shape[0]:,}", df.shape[1], path)
     return df
 
 
@@ -190,7 +235,7 @@ def load_hotel_reviews():
     if path is None:
         raise FileNotFoundError("Không tìm thấy Hotel Reviews CSV trong data/raw/")
     df = pd.read_csv(path)
-    print(f"[LOAD] Hotel Reviews: {df.shape[0]:,} rows, {df.shape[1]} cols — {path}")
+    logger.info("LOAD Hotel Reviews: %s rows, %d cols — %s", f"{df.shape[0]:,}", df.shape[1], path)
     return df
 
 
@@ -202,7 +247,7 @@ def load_travel_ratings():
     if path is None:
         raise FileNotFoundError("Không tìm thấy Travel Ratings CSV trong data/raw/")
     df = pd.read_csv(path)
-    print(f"[LOAD] Travel Ratings: {df.shape[0]:,} rows, {df.shape[1]} cols — {path}")
+    logger.info("LOAD Travel Ratings: %s rows, %d cols — %s", f"{df.shape[0]:,}", df.shape[1], path)
     return df
 
 
@@ -219,7 +264,7 @@ def load_hotel_bookings():
             "File cần tìm: 'hotel_bookings.csv' (kaggle: jessemostipak/hotel-booking-demand)"
         )
     df = pd.read_csv(path)
-    print(f"[LOAD] Hotel Bookings: {df.shape[0]:,} rows, {df.shape[1]} cols — {path}")
+    logger.info("LOAD Hotel Bookings: %s rows, %d cols — %s", f"{df.shape[0]:,}", df.shape[1], path)
     return df
 
 
@@ -233,7 +278,7 @@ def load_world_cities():
     if path is None:
         raise FileNotFoundError("Không tìm thấy World Cities CSV trong data/raw/")
     df = pd.read_csv(path)
-    print(f"[LOAD] World Cities: {df.shape[0]:,} rows, {df.shape[1]} cols — {path}")
+    logger.info("LOAD World Cities: %s rows, %d cols — %s", f"{df.shape[0]:,}", df.shape[1], path)
     return df
 
 
@@ -241,11 +286,26 @@ def load_world_cities():
 # 3. CLEAN DATA
 # ============================================================
 
+def _validate_dataframe(df, name, min_rows=1, required_cols=None):
+    """Validate input DataFrame before cleaning."""
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"{name}: expected pandas DataFrame, got {type(df).__name__}")
+    if df.empty or len(df) < min_rows:
+        raise ValueError(f"{name}: DataFrame is empty or has fewer than {min_rows} rows")
+    if required_cols:
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            logger.warning("%s: missing expected columns %s (available: %s)",
+                           name, missing, list(df.columns[:10]))
+    return True
+
+
 def clean_vietnam_weather(df):
     """
     Làm sạch Vietnam Weather Data.
     - Chuẩn hoá cột, xử lý missing, tạo thêm cột thời gian.
     """
+    _validate_dataframe(df, "Vietnam Weather")
     df = df.copy()
 
     # Chuẩn hoá tên cột
@@ -311,23 +371,25 @@ def clean_vietnam_weather(df):
     if "date" in df.columns:
         df = df.dropna(subset=["date"])
 
-    # Tạo nhãn thời tiết cho IF-THEN rules
+    # Tạo nhãn thời tiết cho IF-THEN rules (thresholds from config)
     if "rain_mm" in df.columns:
-        df["is_rainy"] = (df["rain_mm"] > 1.0).astype(int)
+        df["is_rainy"] = (df["rain_mm"] > RAIN_THRESHOLD_MM).astype(int)
         df["rain_level"] = pd.cut(
             df["rain_mm"], bins=[-1, 0, 5, 20, 50, 999],
             labels=["none", "light", "moderate", "heavy", "extreme"]
         )
     if "humidity" in df.columns:
-        df["is_humid"] = (df["humidity"] > 80).astype(int)
+        df["is_humid"] = (df["humidity"] > HUMIDITY_THRESHOLD).astype(int)
     if "temp_max" in df.columns:
-        df["is_hot"] = (df["temp_max"] > 35).astype(int)
+        df["is_hot"] = (df["temp_max"] > TEMPERATURE_HOT_THRESHOLD).astype(int)
     if all(c in df.columns for c in ["rain_mm", "temp_max", "humidity"]):
         df["outdoor_suitable"] = (
-            (df["rain_mm"] <= 5) & (df["temp_max"] <= 38) & (df["humidity"] <= 90)
+            (df["rain_mm"] <= OUTDOOR_LIMITS["max_rain_mm"])
+            & (df["temp_max"] <= OUTDOOR_LIMITS["max_temp"])
+            & (df["humidity"] <= OUTDOOR_LIMITS["max_humidity"])
         ).astype(int)
 
-    print(f"[CLEAN] Vietnam Weather: {df.shape[0]:,} rows, {df.shape[1]} cols")
+    logger.info("CLEAN Vietnam Weather: %s rows, %d cols", f"{df.shape[0]:,}", df.shape[1])
     return df
 
 
@@ -336,6 +398,7 @@ def clean_hotel_reviews(df):
     Làm sạch 515K Hotel Reviews.
     - Xử lý text, tạo nhãn sentiment, loại bỏ reviews trống.
     """
+    _validate_dataframe(df, "Hotel Reviews", required_cols=["Reviewer_Score"])
     df = df.copy()
 
     # Loại bỏ reviews rỗng
@@ -382,7 +445,7 @@ def clean_hotel_reviews(df):
     if "Reviewer_Score" in df.columns:
         df = df.dropna(subset=["Reviewer_Score"])
 
-    print(f"[CLEAN] Hotel Reviews: {df.shape[0]:,} rows, {df.shape[1]} cols")
+    logger.info("CLEAN Hotel Reviews: %s rows, %d cols", f"{df.shape[0]:,}", df.shape[1])
     return df
 
 
@@ -392,6 +455,7 @@ def clean_travel_ratings(df):
     - Rename cột Category 1-24 thành tên mô tả.
     - 24 cột rating, chuẩn hoá, tạo nhãn traveler_type.
     """
+    _validate_dataframe(df, "Travel Ratings")
     df = df.copy()
 
     # Kaggle dataset dùng "Category 1" -> "Category 24" thay vì tên mô tả.
@@ -425,7 +489,7 @@ def clean_travel_ratings(df):
     rename_map = {k: v for k, v in CATEGORY_NAMES.items() if k in df.columns}
     if rename_map:
         df = df.rename(columns=rename_map)
-        print(f"  Renamed {len(rename_map)} category columns to descriptive names")
+        logger.info("  Renamed %d category columns to descriptive names", len(rename_map))
 
     # Bỏ cột User Id nếu có (chỉ giữ nếu cần)
     category_cols = [c for c in df.columns if c not in ["User", "User Id", "Unnamed: 0"]]
@@ -445,7 +509,7 @@ def clean_travel_ratings(df):
         df["rating_std"] = df[category_cols].std(axis=1)
         df["num_rated"] = (df[category_cols] > 0).sum(axis=1)
 
-    print(f"[CLEAN] Travel Ratings: {df.shape[0]:,} rows, {df.shape[1]} cols")
+    logger.info("CLEAN Travel Ratings: %s rows, %d cols", f"{df.shape[0]:,}", df.shape[1])
     return df
 
 
@@ -457,6 +521,8 @@ def clean_hotel_bookings(df):
              stays_in_weekend_nights, stays_in_week_nights, adults, children, babies, meal,
              country, market_segment, distribution_channel, adr, customer_type, etc.
     """
+    _validate_dataframe(df, "Hotel Bookings",
+                        required_cols=["stays_in_weekend_nights", "stays_in_week_nights", "adr"])
     df = df.copy()
 
     # Xử lý missing
@@ -514,12 +580,13 @@ def clean_hotel_bookings(df):
     # Loại bỏ bookings 0 đêm (day-use, không phổ biến)
     df = df[df["total_nights"] > 0]
 
-    print(f"[CLEAN] Hotel Bookings: {df.shape[0]:,} rows, {df.shape[1]} cols")
+    logger.info("CLEAN Hotel Bookings: %s rows, %d cols", f"{df.shape[0]:,}", df.shape[1])
     return df
 
 
 def clean_world_cities(df):
     """Làm sạch Worldwide Travel Cities."""
+    _validate_dataframe(df, "World Cities")
     df = df.copy()
 
     # Chuẩn hoá cột numeric
@@ -536,7 +603,7 @@ def clean_world_cities(df):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    print(f"[CLEAN] World Cities: {df.shape[0]:,} rows, {df.shape[1]} cols")
+    logger.info("CLEAN World Cities: %s rows, %d cols", f"{df.shape[0]:,}", df.shape[1])
     return df
 
 
@@ -571,31 +638,29 @@ def build_distance_matrix():
             )
             dist[i][j] = round(d, 2)
             dist[j][i] = round(d, 2)
-    print(f"[FEATURE] Distance matrix: {n}x{n} places")
+    logger.info("FEATURE Distance matrix: %dx%d places", n, n)
     return names, dist
 
 
 def build_cost_matrix():
     """
     Xây dựng ma trận chi phí di chuyển ước tính (VND).
-    Giả sử chi phí ~3,000 VND/km (xe khách/taxi trung bình).
+    Chi phí dựa trên TRAVEL_COST_PER_KM (mặc định 3,000 VND/km).
     """
     names, dist_km = build_distance_matrix()
-    cost_per_km = 3000  # VND
-    cost_matrix = dist_km * cost_per_km
-    print(f"[FEATURE] Cost matrix: {len(names)}x{len(names)} places (VND)")
+    cost_matrix = dist_km * TRAVEL_COST_PER_KM
+    logger.info("FEATURE Cost matrix: %dx%d places (VND)", len(names), len(names))
     return names, cost_matrix
 
 
 def build_travel_time_matrix():
     """
     Xây dựng ma trận thời gian di chuyển ước tính (giờ).
-    Giả sử tốc độ trung bình 40km/h (đường Việt Nam).
+    Tốc độ dựa trên TRAVEL_AVG_SPEED_KMH (mặc định 40 km/h).
     """
     names, dist_km = build_distance_matrix()
-    avg_speed = 40  # km/h
-    time_matrix = dist_km / avg_speed
-    print(f"[FEATURE] Travel time matrix: {len(names)}x{len(names)} places (hours)")
+    time_matrix = dist_km / TRAVEL_AVG_SPEED_KMH
+    logger.info("FEATURE Travel time matrix: %dx%d places (hours)", len(names), len(names))
     return names, time_matrix
 
 
@@ -605,7 +670,7 @@ def build_weather_probability_table(df_weather):
     P(rain | province, month), P(hot | province, month), etc.
     """
     if not all(c in df_weather.columns for c in ["province", "month", "is_rainy"]):
-        print("[WARNING] Cần cột province, month, is_rainy. Bỏ qua.")
+        logger.warning("Cần cột province, month, is_rainy. Bỏ qua.")
         return None
 
     # P(rain | province, month)
@@ -630,7 +695,7 @@ def build_weather_probability_table(df_weather):
         humid_prob.columns = ["province", "month", "p_humid"]
         rain_prob = rain_prob.merge(humid_prob, on=["province", "month"], how="left")
 
-    print(f"[FEATURE] Weather probability table: {rain_prob.shape[0]} rows (province x month)")
+    logger.info("FEATURE Weather probability table: %d rows (province x month)", rain_prob.shape[0])
     return rain_prob
 
 
@@ -641,6 +706,10 @@ def build_places_dataframe():
     rows = []
     for name, info in VN_TOURIST_PLACES.items():
         lat, lng, category, province, entry_fee = info
+        visit_hrs = DEFAULT_VISIT_HOURS.get(category, 3.0)
+        open_h, close_h = DEFAULT_OPENING_HOURS.get(
+            category, DEFAULT_OPENING_HOURS["_default"]
+        )
         rows.append({
             "place_name": name,
             "latitude": lat,
@@ -648,12 +717,12 @@ def build_places_dataframe():
             "category": category,
             "province": province,
             "entry_fee_vnd": entry_fee,
-            "visit_duration_hours": 2.0 if category in ["culture", "entertainment"] else 3.0,
-            "opening_hour": 7 if category != "entertainment" else 9,
-            "closing_hour": 17 if category != "entertainment" else 22,
+            "visit_duration_hours": visit_hrs,
+            "opening_hour": open_h,
+            "closing_hour": close_h,
         })
     df = pd.DataFrame(rows)
-    print(f"[FEATURE] Places DataFrame: {df.shape[0]} places")
+    logger.info("FEATURE Places DataFrame: %d places", df.shape[0])
     return df
 
 
@@ -666,7 +735,7 @@ def save_cleaned(df, name):
     ensure_dirs()
     path = os.path.join(CLEANED_DIR, f"{name}.csv")
     df.to_csv(path, index=False)
-    print(f"[SAVE] {path} ({df.shape[0]:,} rows)")
+    logger.info("SAVE %s (%s rows)", path, f"{df.shape[0]:,}")
 
 
 def save_features(arr, name):
@@ -674,7 +743,7 @@ def save_features(arr, name):
     ensure_dirs()
     path = os.path.join(FEATURES_DIR, f"{name}.npy")
     np.save(path, arr)
-    print(f"[SAVE] {path} (shape: {arr.shape})")
+    logger.info("SAVE %s (shape: %s)", path, arr.shape)
 
 
 def save_feature_csv(df, name):
@@ -682,7 +751,7 @@ def save_feature_csv(df, name):
     ensure_dirs()
     path = os.path.join(FEATURES_DIR, f"{name}.csv")
     df.to_csv(path, index=False)
-    print(f"[SAVE] {path} ({df.shape[0]:,} rows)")
+    logger.info("SAVE %s (%s rows)", path, f"{df.shape[0]:,}")
 
 
 # ============================================================
@@ -699,55 +768,55 @@ def run_full_pipeline(skip_download=False):
 
     # --- Download ---
     if not skip_download:
-        print("=" * 60)
-        print("PHASE 1: DOWNLOAD DATASETS")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("PHASE 1: DOWNLOAD DATASETS")
+        logger.info("=" * 60)
         download_all_datasets()
 
     # --- Load & Clean ---
-    print("\n" + "=" * 60)
-    print("PHASE 2: LOAD & CLEAN DATA")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("PHASE 2: LOAD & CLEAN DATA")
+    logger.info("=" * 60)
 
     try:
         df_weather = clean_vietnam_weather(load_vietnam_weather())
         save_cleaned(df_weather, "vietnam_weather")
         result["weather"] = df_weather
     except Exception as e:
-        print(f"[SKIP] Vietnam Weather: {e}")
+        logger.warning("SKIP Vietnam Weather: %s", e)
 
     try:
         df_reviews = clean_hotel_reviews(load_hotel_reviews())
         save_cleaned(df_reviews, "hotel_reviews")
         result["reviews"] = df_reviews
     except Exception as e:
-        print(f"[SKIP] Hotel Reviews: {e}")
+        logger.warning("SKIP Hotel Reviews: %s", e)
 
     try:
         df_ratings = clean_travel_ratings(load_travel_ratings())
         save_cleaned(df_ratings, "travel_ratings")
         result["ratings"] = df_ratings
     except Exception as e:
-        print(f"[SKIP] Travel Ratings: {e}")
+        logger.warning("SKIP Travel Ratings: %s", e)
 
     try:
         df_bookings = clean_hotel_bookings(load_hotel_bookings())
         save_cleaned(df_bookings, "hotel_bookings")
         result["bookings"] = df_bookings
     except Exception as e:
-        print(f"[SKIP] Hotel Bookings: {e}")
+        logger.warning("SKIP Hotel Bookings: %s", e)
 
     try:
         df_cities = clean_world_cities(load_world_cities())
         save_cleaned(df_cities, "world_cities")
         result["cities"] = df_cities
     except Exception as e:
-        print(f"[SKIP] World Cities: {e}")
+        logger.warning("SKIP World Cities: %s", e)
 
     # --- Feature Engineering ---
-    print("\n" + "=" * 60)
-    print("PHASE 3: FEATURE ENGINEERING")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("PHASE 3: FEATURE ENGINEERING")
+    logger.info("=" * 60)
 
     # Distance matrix
     place_names, dist_matrix = build_distance_matrix()
@@ -777,10 +846,11 @@ def run_full_pipeline(skip_download=False):
             save_feature_csv(weather_probs, "weather_probabilities")
             result["weather_probs"] = weather_probs
 
-    print("\n" + "=" * 60)
-    print("PIPELINE COMPLETE")
-    print("=" * 60)
-    print(f"Datasets loaded: {len([k for k in result if isinstance(result[k], pd.DataFrame)])}")
-    print(f"Feature matrices: distance, cost, travel_time ({len(place_names)} places)")
+    logger.info("=" * 60)
+    logger.info("PIPELINE COMPLETE")
+    logger.info("=" * 60)
+    n_datasets = len([k for k in result if isinstance(result[k], pd.DataFrame)])
+    logger.info("Datasets loaded: %d", n_datasets)
+    logger.info("Feature matrices: distance, cost, travel_time (%d places)", len(place_names))
 
     return result
