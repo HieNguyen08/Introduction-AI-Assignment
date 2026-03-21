@@ -16,7 +16,7 @@
 |-----|--------|------|-------|
 | 1 | Nguyễn Minh Hiếu | 2153343 | hieu.nguyen080203@hcmut.edu.vn |
 | 2 | Trần Ngọc Khánh Huy | 2252265 | huy.tranrosenberg@hcmut.edu.vn |
-| 3 | Phan Thảo Vy | 2153343 | hieu.nguyen080203@hcmut.edu.vn |
+| 3 | Phan Thảo Vy | 2252930 | vy.phanthao@hcmut.edu.vn |
 | 4 | Hoàng Thiện Nhân | 2520009 | nhan.hoang2802@hcmut.edu.vn |
 
 ## Mục tiêu bài tập lớn
