@@ -198,11 +198,12 @@ class BayesianNetwork:
             for cat, base_prob in cats.items():
                 # Không mưa → giữ nguyên base_prob
                 cpt[(cat, group_type, False)] = base_prob
-                # Mưa → giảm outdoor, tăng indoor
+                # Mưa → giảm xác suất tất cả (outdoor giảm mạnh, indoor giảm nhẹ)
+                # Rain makes ALL activities less enjoyable; outdoor more severely.
                 if cat in {"nature", "beach", "adventure"}:
                     cpt[(cat, group_type, True)] = base_prob * 0.5
                 else:
-                    cpt[(cat, group_type, True)] = min(1.0, base_prob * 1.2)
+                    cpt[(cat, group_type, True)] = base_prob * 0.9
         user_pref_node.set_cpt(cpt)
         self.add_node(user_pref_node)
 
@@ -234,6 +235,28 @@ class BayesianNetwork:
     # 3. QUERY / INFERENCE
     # ============================================================
 
+    def _find_weather_rows(self, province: str, month: int) -> "pd.DataFrame":
+        """
+        Tìm hàng thời tiết theo tỉnh và tháng.
+        Ưu tiên khớp chính xác (case-insensitive), fallback sang substring.
+        """
+        if self.weather_probs_df is None:
+            return pd.DataFrame()
+        p_lower = province.lower()
+        month_mask = self.weather_probs_df["month"] == month
+        # Khớp chính xác trước
+        exact = self.weather_probs_df[
+            (self.weather_probs_df["province"].str.lower() == p_lower) & month_mask
+        ]
+        if len(exact) > 0:
+            return exact
+        # Fallback: khớp substring (regex=False để tránh lỗi ký tự đặc biệt)
+        return self.weather_probs_df[
+            self.weather_probs_df["province"].str.lower().str.contains(
+                p_lower, na=False, regex=False
+            ) & month_mask
+        ]
+
     def query_rain(self, province: str, month: int) -> float:
         """
         Truy vấn P(rain | province, month).
@@ -251,13 +274,9 @@ class BayesianNetwork:
         # Thử tìm chính xác
         prob = self.nodes["rain"].get_probability(province, month)
 
-        # Nếu không tìm thấy, thử tìm gần đúng (case-insensitive)
-        if prob == self.nodes["rain"]._default_prob and self.weather_probs_df is not None:
-            matches = self.weather_probs_df[
-                (self.weather_probs_df["province"].str.lower().str.contains(
-                    province.lower(), na=False)) &
-                (self.weather_probs_df["month"] == month)
-            ]
+        # Nếu không tìm thấy, thử tìm gần đúng
+        if prob == self.nodes["rain"]._default_prob:
+            matches = self._find_weather_rows(province, month)
             if len(matches) > 0:
                 prob = float(matches.iloc[0]["p_rain"])
 
@@ -270,15 +289,10 @@ class BayesianNetwork:
 
         prob = self.nodes["outdoor_suitable"].get_probability(province, month)
 
-        if prob == self.nodes["outdoor_suitable"]._default_prob and self.weather_probs_df is not None:
-            if "p_outdoor_ok" in self.weather_probs_df.columns:
-                matches = self.weather_probs_df[
-                    (self.weather_probs_df["province"].str.lower().str.contains(
-                        province.lower(), na=False)) &
-                    (self.weather_probs_df["month"] == month)
-                ]
-                if len(matches) > 0:
-                    prob = float(matches.iloc[0]["p_outdoor_ok"])
+        if prob == self.nodes["outdoor_suitable"]._default_prob:
+            matches = self._find_weather_rows(province, month)
+            if len(matches) > 0 and "p_outdoor_ok" in matches.columns:
+                prob = float(matches.iloc[0]["p_outdoor_ok"])
 
         return prob
 
@@ -287,15 +301,10 @@ class BayesianNetwork:
         if "hot" not in self.nodes:
             return DEFAULT_P_HOT
         prob = self.nodes["hot"].get_probability(province, month)
-        if prob == self.nodes["hot"]._default_prob and self.weather_probs_df is not None:
-            if "p_hot" in self.weather_probs_df.columns:
-                matches = self.weather_probs_df[
-                    (self.weather_probs_df["province"].str.lower().str.contains(
-                        province.lower(), na=False)) &
-                    (self.weather_probs_df["month"] == month)
-                ]
-                if len(matches) > 0:
-                    prob = float(matches.iloc[0]["p_hot"])
+        if prob == self.nodes["hot"]._default_prob:
+            matches = self._find_weather_rows(province, month)
+            if len(matches) > 0 and "p_hot" in matches.columns:
+                prob = float(matches.iloc[0]["p_hot"])
         return prob
 
     def query_humid(self, province: str, month: int) -> float:
@@ -303,15 +312,10 @@ class BayesianNetwork:
         if "humid" not in self.nodes:
             return DEFAULT_P_HUMID
         prob = self.nodes["humid"].get_probability(province, month)
-        if prob == self.nodes["humid"]._default_prob and self.weather_probs_df is not None:
-            if "p_humid" in self.weather_probs_df.columns:
-                matches = self.weather_probs_df[
-                    (self.weather_probs_df["province"].str.lower().str.contains(
-                        province.lower(), na=False)) &
-                    (self.weather_probs_df["month"] == month)
-                ]
-                if len(matches) > 0:
-                    prob = float(matches.iloc[0]["p_humid"])
+        if prob == self.nodes["humid"]._default_prob:
+            matches = self._find_weather_rows(province, month)
+            if len(matches) > 0 and "p_humid" in matches.columns:
+                prob = float(matches.iloc[0]["p_humid"])
         return prob
 
     def query_weather_full(self, province: str, month: int) -> Dict[str, float]:
@@ -529,6 +533,22 @@ def integrate_bayes_kb(
         print("=" * 70)
         print("🔗 TÍCH HỢP BAYESIAN NETWORK (D) + KNOWLEDGE BASE (C)")
         print("=" * 70)
+
+    # --- Lọc địa điểm theo tỉnh được chọn ---
+    if "province" in places_df.columns:
+        p_lower = province.lower()
+        province_mask = places_df["province"].str.lower() == p_lower
+        province_places = places_df[province_mask]
+        if len(province_places) >= 2:
+            places_df = province_places.reset_index(drop=True)
+            if verbose:
+                print(f"\n  📍 Lọc theo tỉnh '{province}': {len(places_df)} địa điểm")
+        else:
+            if verbose:
+                print(
+                    f"\n  ⚠️ Chỉ có {len(province_places)} địa điểm tại '{province}' "
+                    f"— dùng toàn bộ {len(places_df)} điểm"
+                )
 
     # --- Bước 1: Xây dựng Bayesian Network & dự đoán thời tiết ---
     if verbose:
