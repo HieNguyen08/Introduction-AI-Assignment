@@ -203,7 +203,8 @@ class TestMatrices:
         names, matrix = build_distance_matrix()
         n = len(names)
         assert matrix.shape == (n, n)
-        assert n == 30
+        from modules.data_pipeline import VN_TOURIST_PLACES
+        assert n == len(VN_TOURIST_PLACES)
         # Symmetric
         np.testing.assert_array_almost_equal(matrix, matrix.T)
         # Zero diagonal
@@ -224,8 +225,9 @@ class TestMatrices:
 
 class TestPlacesDataframe:
     def test_places_count_and_columns(self):
-        df = build_places_dataframe()
-        assert len(df) == 30
+        from modules.data_pipeline import VN_TOURIST_PLACES
+        df = build_places_dataframe(use_osm=False)
+        assert len(df) == len(VN_TOURIST_PLACES)
         for col in ["place_name", "latitude", "longitude", "category",
                      "province", "entry_fee_vnd", "visit_duration_hours",
                      "opening_hour", "closing_hour"]:

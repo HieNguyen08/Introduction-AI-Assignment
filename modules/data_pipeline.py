@@ -15,8 +15,9 @@ NOTE on geographic scope:
   - These datasets are used to train general ML models (sentiment, classification,
     user clustering). The techniques (TF-IDF, Decision Tree, Naive Bayes) are
     domain-agnostic and transfer across geographies.
-  - Vietnam-specific data (weather, 30 tourist places, distance/cost matrices)
+  - Vietnam-specific data (weather, 50 tourist places, distance/cost matrices)
     is already covered by Dataset 1 and the built-in VN_TOURIST_PLACES constants.
+    OSM data (data/osm/vietnam_places.csv) can further enrich this if extracted.
   - Switching to a small 20K Vietnamese review dataset would reduce ML training
     quality by 25x with no meaningful gain for the AI components.
 
@@ -127,38 +128,71 @@ VN_PROVINCE_COORDS = {
     "Ca Mau": (9.1527, 105.1961),
 }
 
-# Toạ độ các điểm du lịch nổi tiếng Việt Nam (mở rộng)
+# Toạ độ các điểm du lịch nổi tiếng Việt Nam
+# Format: "Tên địa điểm": (latitude, longitude, category, province, entry_fee_vnd)
+# Categories: "nature" | "culture" | "beach" | "adventure" | "entertainment"
+# Distribution (50 places): culture 15 (30%), nature 15 (30%), beach 8 (16%),
+#                            adventure 6 (12%), entertainment 6 (12%)
 VN_TOURIST_PLACES = {
-    "Ha Long Bay": (20.9101, 107.1839, "nature", "Quang Ninh", 0),
-    "Hoan Kiem Lake": (21.0288, 105.8525, "culture", "Ha Noi", 0),
-    "Temple of Literature": (21.0275, 105.8360, "culture", "Ha Noi", 30000),
-    "Ho Chi Minh Mausoleum": (21.0369, 105.8350, "culture", "Ha Noi", 0),
-    "Old Quarter Hanoi": (21.0340, 105.8500, "culture", "Ha Noi", 0),
-    "Imperial City Hue": (16.4698, 107.5786, "culture", "Hue", 200000),
-    "Marble Mountains": (16.0034, 108.2628, "nature", "Da Nang", 40000),
-    "Golden Bridge": (15.9940, 107.9969, "nature", "Da Nang", 900000),
-    "My Son Sanctuary": (15.7644, 108.1241, "culture", "Quang Nam", 150000),
-    "Hoi An Ancient Town": (15.8801, 108.3380, "culture", "Quang Nam", 120000),
-    "Cu Chi Tunnels": (11.1415, 106.4627, "culture", "Ho Chi Minh", 110000),
-    "Ben Thanh Market": (10.7725, 106.6980, "culture", "Ho Chi Minh", 0),
-    "Notre Dame Cathedral HCMC": (10.7798, 106.6990, "culture", "Ho Chi Minh", 0),
-    "War Remnants Museum": (10.7794, 106.6920, "culture", "Ho Chi Minh", 40000),
-    "Nha Trang Beach": (12.2464, 109.1960, "beach", "Khanh Hoa", 0),
-    "Vinpearl Nha Trang": (12.2167, 109.2340, "entertainment", "Khanh Hoa", 880000),
-    "Po Nagar Towers": (12.2655, 109.1952, "culture", "Khanh Hoa", 22000),
-    "Xuan Huong Lake": (11.9460, 108.4410, "nature", "Lam Dong", 0),
-    "Crazy House Da Lat": (11.9363, 108.4310, "culture", "Lam Dong", 80000),
-    "Valley of Love": (11.9660, 108.4390, "nature", "Lam Dong", 100000),
-    "Mui Ne Sand Dunes": (10.9333, 108.2869, "nature", "Binh Thuan", 0),
-    "Phu Quoc Beach": (10.2899, 103.9840, "beach", "Kien Giang", 0),
-    "Sapa": (22.3363, 103.8438, "nature", "Lao Cai", 0),
-    "Fansipan Summit": (22.3033, 103.7750, "adventure", "Lao Cai", 700000),
-    "Trang An Landscape": (20.2500, 105.9000, "nature", "Ninh Binh", 200000),
-    "Bai Dinh Pagoda": (20.2731, 105.8644, "culture", "Ninh Binh", 100000),
-    "Phong Nha Cave": (17.5920, 106.2835, "nature", "Quang Binh", 150000),
-    "Son Doong Cave": (17.5556, 106.1467, "adventure", "Quang Binh", 70000000),
-    "Cat Ba Island": (20.7267, 107.0458, "nature", "Hai Phong", 0),
-    "Ba Na Hills": (15.9975, 107.9964, "entertainment", "Da Nang", 900000),
+    # --- CULTURE (15) ---
+    "Hoan Kiem Lake":           (21.0288, 105.8525, "culture", "Ha Noi",        0),
+    "Temple of Literature":     (21.0275, 105.8360, "culture", "Ha Noi",        30000),
+    "Ho Chi Minh Mausoleum":    (21.0369, 105.8350, "culture", "Ha Noi",        0),
+    "Old Quarter Hanoi":        (21.0340, 105.8500, "culture", "Ha Noi",        0),
+    "Imperial City Hue":        (16.4698, 107.5786, "culture", "Hue",           200000),
+    "My Son Sanctuary":         (15.7644, 108.1241, "culture", "Quang Nam",     150000),
+    "Hoi An Ancient Town":      (15.8801, 108.3380, "culture", "Quang Nam",     120000),
+    "Cu Chi Tunnels":           (11.1415, 106.4627, "culture", "Ho Chi Minh",   110000),
+    "Ben Thanh Market":         (10.7725, 106.6980, "culture", "Ho Chi Minh",   0),
+    "Notre Dame Cathedral HCMC":(10.7798, 106.6990, "culture", "Ho Chi Minh",   0),
+    "War Remnants Museum":      (10.7794, 106.6920, "culture", "Ho Chi Minh",   40000),
+    "Po Nagar Towers":          (12.2655, 109.1952, "culture", "Khanh Hoa",     22000),
+    "Crazy House Da Lat":       (11.9363, 108.4310, "culture", "Lam Dong",      80000),
+    "Bai Dinh Pagoda":          (20.2731, 105.8644, "culture", "Ninh Binh",     100000),
+    "Long Son Pagoda":          (12.2499, 109.1840, "culture", "Khanh Hoa",     0),
+
+    # --- NATURE (15) ---
+    "Ha Long Bay":              (20.9101, 107.1839, "nature", "Quang Ninh",     0),
+    "Marble Mountains":         (16.0034, 108.2628, "nature", "Da Nang",        40000),
+    "Golden Bridge":            (15.9940, 107.9969, "nature", "Da Nang",        900000),
+    "Xuan Huong Lake":          (11.9460, 108.4410, "nature", "Lam Dong",       0),
+    "Valley of Love":           (11.9660, 108.4390, "nature", "Lam Dong",       100000),
+    "Mui Ne Sand Dunes":        (10.9333, 108.2869, "nature", "Binh Thuan",     0),
+    "Sapa":                     (22.3363, 103.8438, "nature", "Lao Cai",        0),
+    "Trang An Landscape":       (20.2500, 105.9000, "nature", "Ninh Binh",      200000),
+    "Phong Nha Cave":           (17.5920, 106.2835, "nature", "Quang Binh",     150000),
+    "Cat Ba Island":            (20.7267, 107.0458, "nature", "Hai Phong",      0),
+    "Ban Gioc Waterfall":       (22.8567, 106.7072, "nature", "Cao Bang",       45000),
+    "Ha Giang Rock Plateau":    (23.0079, 105.3144, "nature", "Ha Giang",       0),
+    "Tam Coc":                  (20.2167, 105.9333, "nature", "Ninh Binh",      150000),
+    "Pu Luong Nature Reserve":  (20.3390, 105.1660, "nature", "Thanh Hoa",      0),
+    "Cuc Phuong National Park": (20.2317, 105.6508, "nature", "Ninh Binh",      150000),
+
+    # --- BEACH (8) ---
+    "Nha Trang Beach":          (12.2464, 109.1960, "beach", "Khanh Hoa",       0),
+    "Phu Quoc Beach":           (10.2899, 103.9840, "beach", "Kien Giang",      0),
+    "Da Nang Beach":            (16.0544, 108.2022, "beach", "Da Nang",         0),
+    "Quy Nhon Beach":           (13.7765, 109.2196, "beach", "Binh Dinh",       0),
+    "Phan Thiet Beach":         (10.9289, 108.1022, "beach", "Binh Thuan",      0),
+    "Con Dao Beach":            (8.6810,  106.5983, "beach", "Ba Ria Vung Tau", 0),
+    "Lang Co Beach":            (16.2167, 108.0500, "beach", "Thua Thien Hue",  0),
+    "Sam Son Beach":            (19.7455, 105.9055, "beach", "Thanh Hoa",       0),
+
+    # --- ADVENTURE (6) ---
+    "Son Doong Cave":           (17.5556, 106.1467, "adventure", "Quang Binh",      70000000),
+    "Fansipan Summit":          (22.3033, 103.7750, "adventure", "Lao Cai",         700000),
+    "Hang En Cave":             (17.5444, 106.1556, "adventure", "Quang Binh",      5500000),
+    "Bach Ma National Park":    (16.1979, 107.8562, "adventure", "Thua Thien Hue",  60000),
+    "Moc Chau Highland":        (20.8290, 104.6849, "adventure", "Son La",          0),
+    "Lung Cu Flag Tower":       (23.3714, 105.3353, "adventure", "Ha Giang",        20000),
+
+    # --- ENTERTAINMENT (6) ---
+    "Ba Na Hills":              (15.9975, 107.9964, "entertainment", "Da Nang",     900000),
+    "Vinpearl Nha Trang":       (12.2167, 109.2340, "entertainment", "Khanh Hoa",   880000),
+    "Landmark 81":              (10.7953, 106.7220, "entertainment", "Ho Chi Minh", 200000),
+    "Dragon Bridge Da Nang":    (16.0604, 108.2272, "entertainment", "Da Nang",     0),
+    "Night Market Hoi An":      (15.8792, 108.3367, "entertainment", "Quang Nam",   0),
+    "West Lake Hanoi":          (21.0617, 105.8128, "entertainment", "Ha Noi",      0),
 }
 
 
@@ -699,10 +733,19 @@ def build_weather_probability_table(df_weather):
     return rain_prob
 
 
-def build_places_dataframe():
+def build_places_dataframe(use_osm: bool = True) -> pd.DataFrame:
     """
-    Tạo DataFrame các điểm du lịch Việt Nam với đầy đủ thông tin.
+    Tạo DataFrame các điểm du lịch Việt Nam.
+
+    Args:
+        use_osm: Nếu True, bổ sung điểm từ OSM JSON (data/osm/pbf_asia.json)
+                 khi file tồn tại. Base VN_TOURIST_PLACES luôn được đưa vào.
+
+    Returns:
+        DataFrame với các cột: place_name, latitude, longitude, category,
+        province, entry_fee_vnd, visit_duration_hours, opening_hour, closing_hour
     """
+    # --- Build base DataFrame từ VN_TOURIST_PLACES (50 curated places) ---
     rows = []
     for name, info in VN_TOURIST_PLACES.items():
         lat, lng, category, province, entry_fee = info
@@ -711,19 +754,30 @@ def build_places_dataframe():
             category, DEFAULT_OPENING_HOURS["_default"]
         )
         rows.append({
-            "place_name": name,
-            "latitude": lat,
-            "longitude": lng,
-            "category": category,
-            "province": province,
-            "entry_fee_vnd": entry_fee,
+            "place_name":          name,
+            "latitude":            lat,
+            "longitude":           lng,
+            "category":            category,
+            "province":            province,
+            "entry_fee_vnd":       entry_fee,
             "visit_duration_hours": visit_hrs,
-            "opening_hour": open_h,
-            "closing_hour": close_h,
+            "opening_hour":        open_h,
+            "closing_hour":        close_h,
         })
-    df = pd.DataFrame(rows)
-    logger.info("FEATURE Places DataFrame: %d places", df.shape[0])
-    return df
+    base_df = pd.DataFrame(rows)
+    logger.info("FEATURE Base places: %d (VN_TOURIST_PLACES)", len(base_df))
+
+    # --- Bổ sung từ OSM JSON nếu có ---
+    if use_osm:
+        try:
+            from modules.osm_loader import load_osm_places, merge_with_base
+            osm_df = load_osm_places()
+            base_df = merge_with_base(base_df, osm_df)
+        except Exception as exc:
+            logger.warning("OSM enrichment skipped: %s", exc)
+
+    logger.info("FEATURE Places DataFrame: %d total places", len(base_df))
+    return base_df
 
 
 # ============================================================
