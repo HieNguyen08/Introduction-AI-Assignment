@@ -527,8 +527,13 @@ def clean_travel_ratings(df):
         df = df.rename(columns=rename_map)
         logger.info("  Renamed %d category columns to descriptive names", len(rename_map))
 
-    # Bỏ cột User Id nếu có (chỉ giữ nếu cần)
-    category_cols = [c for c in df.columns if c not in ["User", "User Id", "Unnamed: 0"]]
+    # Bỏ cột Unnamed (artifact từ CSV gốc có extra column) và User Id
+    unnamed_cols = [c for c in df.columns if str(c).startswith("Unnamed:")]
+    if unnamed_cols:
+        df = df.drop(columns=unnamed_cols)
+        logger.info("  Dropped %d unnamed column(s): %s", len(unnamed_cols), unnamed_cols)
+
+    category_cols = [c for c in df.columns if c not in ["User", "User Id"]]
 
     # Chuyển sang numeric
     for c in category_cols:
