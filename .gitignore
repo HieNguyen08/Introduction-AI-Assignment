@@ -8,6 +8,13 @@ data/features/*.npz
 data/features/*.csv
 data/features/*.h5
 
+# OSM source data (too large for GitHub, >100MB)
+data/osm/*.json
+data/osm/*.pbf
+
+# AI assistant state
+.claude/
+
 # Keep directory structure
 !data/raw/.gitkeep
 !data/cleaned/.gitkeep

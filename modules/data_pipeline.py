@@ -53,6 +53,7 @@ RAW_DIR = os.path.join(BASE_DIR, "data", "raw")
 CLEANED_DIR = os.path.join(BASE_DIR, "data", "cleaned")
 PROCESSED_DIR = os.path.join(BASE_DIR, "data", "processed")
 FEATURES_DIR = os.path.join(BASE_DIR, "data", "features")
+SCRAPED_DIR = os.path.join(BASE_DIR, "data", "scraped")
 
 # --- Configurable parameters (teammates: adjust these as needed) ---
 TRAVEL_COST_PER_KM = 3000       # VND — average cost per km (bus/taxi)
@@ -861,7 +862,391 @@ def build_hotels_dataframe() -> Optional[pd.DataFrame]:
 
 
 # ============================================================
-# 7. FULL PIPELINE
+# 7. SCRAPED DATA PROCESSING & ENRICHMENT
+# ============================================================
+
+# Known junk patterns in Agoda scraped data (scraper artifacts)
+_AGODA_JUNK_PATTERNS = [
+    "xem trên bản đồ", "view on map", "- view on",
+    "tuyệt vời", "rất tốt", "xuất sắc", "trên cả tuyệt vời",
+    "tốt", "khá tốt",
+    "giá trung bình", "kiểm tra", "phòng trống", "lượng phòng",
+    "excellent", "very good", "exceptional", "superb", "wonderful",
+    "₫", "nhận xét", "đánh giá", "bản đồ",
+]
+
+
+def _is_agoda_junk(name: str) -> bool:
+    """Return True nếu row là scraper artifact (map link, rating label, price label)."""
+    import re as _re_inner
+    if not isinstance(name, str) or not name.strip():
+        return True
+    low = name.strip().lower()
+    if any(p in low for p in _AGODA_JUNK_PATTERNS):
+        return True
+    # Loại bỏ rows chỉ chứa số/tiền tệ
+    if _re_inner.match(r"^[\d,.\s₫$€£]+$", name.strip()):
+        return True
+    return False
+
+
+def clean_agoda_hotels(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Làm sạch dữ liệu khách sạn Agoda từ web scraping.
+    - Loại bỏ dòng rác (map links, rating labels, price labels)
+    - Giữ lại rows có tên khách sạn thực sự + rating/review count
+    - Deduplicate theo tên + tỉnh
+
+    Input:  data/scraped/agoda_hotels_vn.csv
+    Output: data/cleaned/agoda_hotels_vn.csv
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(
+            columns=["name", "province", "district", "rating_score", "review_count", "source"]
+        )
+    df = df.copy()
+
+    # Filter out junk rows
+    if "name" in df.columns:
+        df = df[~df["name"].apply(_is_agoda_junk)].copy()
+
+    # Convert types
+    for col in ["rating_score", "review_count"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Validate rating range (Agoda uses 1-10)
+    if "rating_score" in df.columns:
+        df.loc[(df["rating_score"] < 1) | (df["rating_score"] > 10), "rating_score"] = np.nan
+
+    # Drop rows with no name
+    df = df.dropna(subset=["name"])
+    df = df[df["name"].str.strip() != ""]
+
+    # Keep rows that have at least rating OR review_count
+    if "rating_score" in df.columns and "review_count" in df.columns:
+        has_data = df["rating_score"].notna() | df["review_count"].notna()
+        df = df[has_data]
+
+    # Deduplicate
+    dedup_cols = [c for c in ["name", "province"] if c in df.columns]
+    if dedup_cols:
+        df = df.drop_duplicates(subset=dedup_cols, keep="first")
+
+    df = df.reset_index(drop=True)
+    logger.info("CLEAN Agoda Hotels: %d valid hotels (scraped → cleaned)", len(df))
+    return df
+
+
+def clean_agoda_prices(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Làm sạch dữ liệu giá khách sạn Agoda từ web scraping.
+    - Loại bỏ dòng rác
+    - Giữ lại rows có price_vnd_night hợp lệ (50K–50M VND/đêm)
+    - Deduplicate
+
+    Input:  data/scraped/agoda_hotel_prices_vn.csv
+    Output: data/cleaned/agoda_hotel_prices_vn.csv
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(
+            columns=["name", "province", "district",
+                     "price_vnd_night", "price_tier",
+                     "rating_score", "review_count", "source"]
+        )
+    df = df.copy()
+
+    # Filter junk rows
+    if "name" in df.columns:
+        df = df[~df["name"].apply(_is_agoda_junk)].copy()
+
+    # Convert numeric
+    for col in ["price_vnd_night", "rating_score", "review_count"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Drop invalid names
+    df = df.dropna(subset=["name"])
+    df = df[df["name"].str.strip() != ""]
+
+    # Validate price range (50K–50M VND/đêm)
+    if "price_vnd_night" in df.columns:
+        valid_price = (
+            df["price_vnd_night"].isna()
+            | ((df["price_vnd_night"] >= 50_000) & (df["price_vnd_night"] <= 50_000_000))
+        )
+        df = df[valid_price]
+
+    # Keep rows with at least price OR rating
+    cols_to_check = [c for c in ["price_vnd_night", "rating_score"] if c in df.columns]
+    if cols_to_check:
+        has_data = pd.concat([df[c].notna() for c in cols_to_check], axis=1).any(axis=1)
+        df = df[has_data]
+
+    # Deduplicate
+    dedup_cols = [c for c in ["name", "province"] if c in df.columns]
+    if dedup_cols:
+        df = df.drop_duplicates(subset=dedup_cols, keep="first")
+
+    df = df.reset_index(drop=True)
+    logger.info("CLEAN Agoda Prices: %d valid entries (scraped → cleaned)", len(df))
+    return df
+
+
+def build_vn_climate_monthly(df_weather: pd.DataFrame) -> pd.DataFrame:
+    """
+    Tạo bảng khí hậu tháng Việt Nam từ dữ liệu thực tế (181K records, 2009–2021).
+
+    Chính xác hơn dữ liệu scraped vì dùng trực tiếp 12 năm đo đạc WMO.
+    Thay thế cho vn_climate_monthly.csv scraped (có avg_temp_c sai lệch).
+
+    Output: data/cleaned/vn_climate_monthly.csv
+    Columns:
+        province | month | season | avg_temp_c | avg_temp_max | avg_temp_min |
+        avg_rain_mm | avg_humidity | p_rain | p_outdoor_ok | p_hot | p_humid |
+        record_count
+    """
+    required = ["province", "month", "temp_max", "temp_min",
+                "rain_mm", "humidity", "is_rainy", "outdoor_suitable", "is_hot", "is_humid"]
+    missing = [c for c in required if c not in df_weather.columns]
+    if missing:
+        logger.warning("build_vn_climate_monthly: thiếu cột %s — bỏ qua", missing)
+        return pd.DataFrame()
+
+    agg = df_weather.groupby(["province", "month"]).agg(
+        avg_temp_max = ("temp_max",         "mean"),
+        avg_temp_min = ("temp_min",         "mean"),
+        avg_rain_mm  = ("rain_mm",          "mean"),
+        avg_humidity = ("humidity",         "mean"),
+        p_rain       = ("is_rainy",         "mean"),
+        p_outdoor_ok = ("outdoor_suitable", "mean"),
+        p_hot        = ("is_hot",           "mean"),
+        p_humid      = ("is_humid",         "mean"),
+        record_count = ("temp_max",         "count"),
+    ).reset_index()
+
+    # Nhiệt độ trung bình = (max + min) / 2
+    agg["avg_temp_c"] = ((agg["avg_temp_max"] + agg["avg_temp_min"]) / 2).round(1)
+
+    # Thêm mùa
+    agg["season"] = agg["month"].map(
+        lambda m: "spring" if m in [2, 3, 4]
+        else "summer" if m in [5, 6, 7]
+        else "autumn" if m in [8, 9, 10]
+        else "winter"
+    )
+
+    # Sắp xếp và làm tròn
+    agg = agg.sort_values(["province", "month"]).reset_index(drop=True)
+    for col in ["avg_temp_max", "avg_temp_min", "avg_rain_mm", "avg_humidity",
+                "p_rain", "p_outdoor_ok", "p_hot", "p_humid"]:
+        if col in agg.columns:
+            agg[col] = agg[col].round(4)
+
+    # Đảm bảo thứ tự cột hợp lý
+    col_order = ["province", "month", "season", "avg_temp_c", "avg_temp_max", "avg_temp_min",
+                 "avg_rain_mm", "avg_humidity", "p_rain", "p_outdoor_ok", "p_hot", "p_humid",
+                 "record_count"]
+    agg = agg[[c for c in col_order if c in agg.columns]]
+
+    logger.info(
+        "BUILD VN Climate Monthly: %d rows (%d tỉnh × tháng, từ dữ liệu thực tế)",
+        len(agg), agg["province"].nunique()
+    )
+    return agg
+
+
+# Mapping từ tên thành phố/điểm trong vn_places_detail → province chuẩn trong vn_tourist_places
+_PLACES_DETAIL_CITY_TO_PROVINCE = {
+    "ha long":          "Quang Ninh",
+    "ha noi":           "Ha Noi",
+    "hanoi":            "Ha Noi",
+    "ha giang":         "Ha Giang",
+    "ninh binh":        "Ninh Binh",
+    "sapa":             "Lao Cai",
+    "da nang":          "Da Nang",
+    "danang":           "Da Nang",
+    "hue":              "Hue",
+    "hoi an":           "Quang Nam",
+    "da lat":           "Lam Dong",
+    "dalat":            "Lam Dong",
+    "nha trang":        "Khanh Hoa",
+    "phong nha":        "Quang Binh",
+    "ho chi minh":      "Ho Chi Minh",
+    "ho chi minh city": "Ho Chi Minh",
+    "phu quoc":         "Kien Giang",
+    "con dao":          "Ba Ria Vung Tau",
+    "can tho":          "Can Tho",
+    "binh thuan":       "Binh Thuan",
+}
+
+
+def enrich_places_with_descriptions(places_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Bổ sung mô tả địa điểm du lịch từ vn_places_detail.csv (scraped từ vietnam.travel).
+
+    Chiến lược matching:
+      1. Tìm mô tả chính xác theo tên địa điểm trong vn_places_detail.csv
+      2. Fallback: dùng mô tả cấp tỉnh (province-level description)
+
+    Chỉ enrich những địa điểm chưa có mô tả (description == '' hoặc NaN).
+    """
+    desc_path = os.path.join(SCRAPED_DIR, "vn_places_detail.csv")
+    if not os.path.exists(desc_path):
+        logger.warning("vn_places_detail.csv không tìm thấy — bỏ qua enrich descriptions")
+        return places_df
+
+    desc_df = pd.read_csv(desc_path)
+    # Lọc rows có mô tả thực sự (tối thiểu 50 ký tự)
+    desc_df = desc_df.dropna(subset=["description"])
+    desc_df = desc_df[desc_df["description"].str.strip().str.len() > 50]
+
+    if "place_name" not in desc_df.columns:
+        return places_df
+
+    # Xây dựng lookup: province_chuẩn → description
+    prov_to_desc: dict = {}
+    for _, row in desc_df.iterrows():
+        pn_raw = str(row["place_name"]).lower().strip()
+        desc = str(row["description"]).strip()
+
+        # Match theo alias
+        if pn_raw in _PLACES_DETAIL_CITY_TO_PROVINCE:
+            prov = _PLACES_DETAIL_CITY_TO_PROVINCE[pn_raw]
+            if prov not in prov_to_desc:
+                prov_to_desc[prov] = desc
+
+        # Match trực tiếp theo cột province (nếu có)
+        if "province" in desc_df.columns and pd.notna(row.get("province")):
+            prov_direct = str(row["province"]).strip()
+            # Map province trực tiếp nếu là tên chuẩn
+            if prov_direct not in prov_to_desc and len(desc) > 50:
+                if prov_direct in _PLACES_DETAIL_CITY_TO_PROVINCE:
+                    prov_to_desc[_PLACES_DETAIL_CITY_TO_PROVINCE[prov_direct]] = desc
+                else:
+                    # Thử match trực tiếp với province trong places_df
+                    prov_to_desc.setdefault(prov_direct, desc)
+
+    places_df = places_df.copy()
+    if "description" not in places_df.columns:
+        places_df["description"] = ""
+
+    enriched = 0
+    for idx, row in places_df.iterrows():
+        current = str(places_df.at[idx, "description"]).strip()
+        if len(current) > 30:
+            continue  # đã có mô tả thực sự
+        prov = str(row.get("province", "")).strip()
+        if prov in prov_to_desc:
+            places_df.at[idx, "description"] = prov_to_desc[prov]
+            enriched += 1
+
+    logger.info(
+        "ENRICH Places descriptions: %d/%d địa điểm được bổ sung mô tả",
+        enriched, len(places_df)
+    )
+    return places_df
+
+
+def build_hotel_price_stats(agoda_prices_df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """
+    Tạo bảng thống kê giá khách sạn theo tỉnh/tier từ dữ liệu Agoda.
+
+    Dùng cho module CSP (B) để thiết lập ràng buộc ngân sách thực tế.
+
+    Output: data/features/hotel_price_stats.csv
+    Columns: province | price_tier | avg_price | median_price |
+             min_price | max_price | hotel_count
+    """
+    if agoda_prices_df is None or agoda_prices_df.empty:
+        logger.warning("build_hotel_price_stats: không có dữ liệu Agoda prices")
+        return None
+
+    missing = [c for c in ["province", "price_tier", "price_vnd_night"]
+               if c not in agoda_prices_df.columns]
+    if missing:
+        logger.warning("build_hotel_price_stats: thiếu cột %s", missing)
+        return None
+
+    df = agoda_prices_df[agoda_prices_df["price_vnd_night"].notna()].copy()
+    if df.empty:
+        return None
+
+    stats = (
+        df.groupby(["province", "price_tier"])["price_vnd_night"]
+        .agg(avg_price="mean", median_price="median",
+             min_price="min", max_price="max", hotel_count="count")
+        .reset_index()
+    )
+
+    for col in ["avg_price", "median_price", "min_price", "max_price"]:
+        stats[col] = stats[col].round(0).astype(int)
+
+    logger.info("FEATURE Hotel price stats: %d rows (tỉnh × tier)", len(stats))
+    return stats
+
+
+def enrich_hotels_with_agoda(
+    osm_hotels_df: pd.DataFrame,
+    agoda_hotels_df: Optional[pd.DataFrame],
+    agoda_prices_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """
+    Enrich danh sách khách sạn OSM với rating/giá từ Agoda.
+    Matching: exact lowercase name.
+
+    Chỉ điền vào các ô còn NaN/0 (không ghi đè dữ liệu có sẵn).
+    """
+    if osm_hotels_df is None or osm_hotels_df.empty:
+        return osm_hotels_df
+
+    df = osm_hotels_df.copy()
+    if "price_vnd_night" not in df.columns:
+        df["price_vnd_night"] = np.nan
+
+    # Xây dựng lookup: lowercase_name → {rating, review_count, price_vnd_night}
+    lookup: dict = {}
+
+    def _populate(src_df: Optional[pd.DataFrame], col_map: dict) -> None:
+        if src_df is None or src_df.empty:
+            return
+        for _, row in src_df.iterrows():
+            if pd.isna(row.get("name")):
+                continue
+            key = str(row["name"]).lower().strip()
+            if key not in lookup:
+                lookup[key] = {}
+            for out_col, in_col in col_map.items():
+                if in_col in src_df.columns and pd.notna(row.get(in_col)):
+                    lookup[key].setdefault(out_col, row[in_col])
+
+    _populate(agoda_hotels_df, {"rating": "rating_score", "review_count": "review_count"})
+    _populate(agoda_prices_df, {
+        "rating": "rating_score",
+        "review_count": "review_count",
+        "price_vnd_night": "price_vnd_night",
+    })
+
+    matched = 0
+    for idx, row in df.iterrows():
+        if pd.isna(row.get("name")):
+            continue
+        key = str(row["name"]).lower().strip()
+        if key in lookup:
+            for col, val in lookup[key].items():
+                if col in df.columns and (pd.isna(df.at[idx, col]) or df.at[idx, col] == 0):
+                    df.at[idx, col] = val
+            matched += 1
+
+    logger.info(
+        "ENRICH Hotels with Agoda: %d/%d OSM khách sạn được cập nhật rating/giá",
+        matched, len(df)
+    )
+    return df
+
+
+# ============================================================
+# 8. FULL PIPELINE
 # ============================================================
 
 def run_full_pipeline(skip_download=False):
@@ -964,6 +1349,77 @@ def run_full_pipeline(skip_download=False):
             save_feature_csv(weather_probs, "weather_probabilities")
             result["weather_probs"] = weather_probs
 
+    # ----------------------------------------------------------------
+    # PHASE 4: SCRAPED DATA ENRICHMENT
+    # Xử lý dữ liệu scraped → lưu vào data/cleaned/ và data/features/
+    # ----------------------------------------------------------------
+    logger.info("=" * 60)
+    logger.info("PHASE 4: SCRAPED DATA ENRICHMENT")
+    logger.info("=" * 60)
+
+    # --- 4a. Agoda Hotels (scraped → cleaned) ---
+    df_agoda_hotels: Optional[pd.DataFrame] = None
+    agoda_hotels_path = os.path.join(SCRAPED_DIR, "agoda_hotels_vn.csv")
+    if os.path.exists(agoda_hotels_path):
+        try:
+            raw_agoda = pd.read_csv(agoda_hotels_path)
+            df_agoda_hotels = clean_agoda_hotels(raw_agoda)
+            save_cleaned(df_agoda_hotels, "agoda_hotels_vn")
+            result["agoda_hotels"] = df_agoda_hotels
+        except Exception as e:
+            logger.warning("SKIP Agoda Hotels enrichment: %s", e)
+
+    # --- 4b. Agoda Prices (scraped → cleaned) ---
+    df_agoda_prices: Optional[pd.DataFrame] = None
+    agoda_prices_path = os.path.join(SCRAPED_DIR, "agoda_hotel_prices_vn.csv")
+    if os.path.exists(agoda_prices_path):
+        try:
+            raw_prices = pd.read_csv(agoda_prices_path)
+            df_agoda_prices = clean_agoda_prices(raw_prices)
+            save_cleaned(df_agoda_prices, "agoda_hotel_prices_vn")
+            result["agoda_prices"] = df_agoda_prices
+        except Exception as e:
+            logger.warning("SKIP Agoda Prices enrichment: %s", e)
+
+    # --- 4c. VN Climate Monthly (từ dữ liệu thực tế → cleaned) ---
+    # Thay thế cho vn_climate_monthly.csv scraped (có avg_temp_c sai lệch)
+    if "weather" in result:
+        try:
+            df_climate = build_vn_climate_monthly(result["weather"])
+            if not df_climate.empty:
+                save_cleaned(df_climate, "vn_climate_monthly")
+                result["climate_monthly"] = df_climate
+        except Exception as e:
+            logger.warning("SKIP VN Climate Monthly: %s", e)
+
+    # --- 4d. Enrich Tourist Places with Descriptions ---
+    if "places" in result:
+        try:
+            result["places"] = enrich_places_with_descriptions(result["places"])
+            save_feature_csv(result["places"], "vn_tourist_places")
+        except Exception as e:
+            logger.warning("SKIP Places description enrichment: %s", e)
+
+    # --- 4e. Hotel Price Stats (scraped → features) ---
+    if df_agoda_prices is not None and not df_agoda_prices.empty:
+        try:
+            price_stats = build_hotel_price_stats(df_agoda_prices)
+            if price_stats is not None:
+                save_feature_csv(price_stats, "hotel_price_stats")
+                result["hotel_price_stats"] = price_stats
+        except Exception as e:
+            logger.warning("SKIP Hotel price stats: %s", e)
+
+    # --- 4f. Enrich OSM Hotels with Agoda Ratings/Prices ---
+    if "hotels" in result:
+        try:
+            result["hotels"] = enrich_hotels_with_agoda(
+                result["hotels"], df_agoda_hotels, df_agoda_prices
+            )
+            save_feature_csv(result["hotels"], "vn_hotels")
+        except Exception as e:
+            logger.warning("SKIP Hotels Agoda enrichment: %s", e)
+
     logger.info("=" * 60)
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 60)
@@ -974,5 +1430,9 @@ def run_full_pipeline(skip_download=False):
         logger.info("Restaurants: %d VN entries", len(result["restaurants"]))
     if "hotels" in result:
         logger.info("Hotels: %d VN entries", len(result["hotels"]))
+    if "climate_monthly" in result:
+        logger.info("Climate monthly: %d rows (từ dữ liệu thực tế)", len(result["climate_monthly"]))
+    if "hotel_price_stats" in result:
+        logger.info("Hotel price stats: %d rows (tỉnh × tier)", len(result["hotel_price_stats"]))
 
     return result

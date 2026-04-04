@@ -3,6 +3,8 @@
 
 > **Mục đích tài liệu này:** Giải thích chi tiết toàn bộ quá trình thu thập, làm sạch, và tiền xử lý dữ liệu cho các thành viên còn lại của nhóm — bao gồm lý do lựa chọn từng dataset, cách xử lý sự khác biệt giữa các bộ dữ liệu, và cách đầu ra được chuẩn hoá để phục vụ các module AI.
 
+> **Cập nhật 04/04/2026:** Bổ sung **Phase 4 — Scraped Data Enrichment**: xử lý và tích hợp toàn bộ dữ liệu scraped vào cấu trúc folder chính thức `data/cleaned/` và `data/features/` theo yêu cầu Mục 6 - Báo cáo bắt buộc.
+
 ---
 
 ## Mục lục
@@ -14,21 +16,22 @@
 5. [Feature Engineering — Tạo đầu vào cho AI](#5-feature-engineering--tạo-đầu-vào-cho-ai)
 6. [Cấu trúc thư mục đầu ra](#6-cấu-trúc-thư-mục-đầu-ra)
 7. [Hướng dẫn sử dụng cho các thành viên](#7-hướng-dẫn-sử-dụng-cho-các-thành-viên)
+8. [Enrichment — Xử lý dữ liệu Scraped (Phase 4)](#8-enrichment--xử-lý-dữ-liệu-scraped-phase-4)
 
 ---
 
 ## 1. Tổng quan kiến trúc dữ liệu
 
 ```
-Kaggle (5 datasets)
-        │
-        ▼
-  [data/raw/]          ← Dữ liệu gốc, KHÔNG chỉnh sửa
-        │
-        ▼ clean_*()
+Kaggle (5 datasets)     Web Scraping (4 nguồn)
+        │                        │
+        ▼                        ▼
+  [data/raw/]          [data/scraped/]   ← Dữ liệu scraped thô (không lưu chính thức)
+        │                        │
+        ▼ clean_*()              ▼ clean_agoda_*(), build_vn_climate_monthly()
   [data/cleaned/]      ← CSV đã làm sạch, tên cột chuẩn hoá
         │
-        ▼ build_*()
+        ▼ build_*() + enrich_*()
   [data/features/]     ← .npy / .csv sẵn sàng nạp vào model AI
         │
         ▼ plt.savefig()
@@ -37,6 +40,7 @@ Kaggle (5 datasets)
 
 **Nguyên tắc thiết kế:**
 - `data/raw/` — Không bao giờ sửa. Nếu cần chạy lại từ đầu, pipeline tự download lại.
+- `data/scraped/` — Dữ liệu scraped thô. **Không** là output chính thức; luôn được xử lý qua pipeline trước khi lưu vào `cleaned/` hoặc `features/`.
 - `data/cleaned/` — Mỗi file `.csv` tương ứng 1 dataset gốc, đã chuẩn hoá tên cột, đã xử lý missing.
 - `data/features/` — Các file `.npy` (NumPy array) và `.csv` này là **đầu vào trực tiếp** cho các module của Thành viên 2 và 3.
 
@@ -719,6 +723,165 @@ Output: lịch trình chi tiết từng ngày + giải thích lý do chọn từ
 | **Regex** để parse cost string | Kaggle data thực tế không đồng nhất về format số tiền |
 | **Haversine** thay vì Google Maps | Không cần API key, đủ chính xác cho mục đích học thuật |
 | Sample **50K** cho TF-IDF | Colab miễn phí giới hạn ~12GB RAM; 50K × 5000 sparse ≈ vài trăm MB |
+| K-Means **k=5** cho user cluster | 5 nhóm traveler phổ biến trong nghiên cứu du lịch |
+| `StandardScaler` trước KMeans | KMeans nhạy cảm với scale — bắt buộc phải chuẩn hoá trước |
+| `build_vn_climate_monthly` từ dữ liệu thực tế | Dữ liệu scraped có avg_temp_c sai (giá trị âm do offset scraper) — thay bằng tính từ 181K records WMO |
+| Lưu scraped → `data/cleaned/` + `data/features/` | Theo yêu cầu cấu trúc folder Mục 6 — `data/scraped/` chỉ là staging area |
+
+---
+
+## 8. Enrichment — Xử lý dữ liệu Scraped (Phase 4)
+
+*Cập nhật 04/04/2026 — đáp ứng yêu cầu Mục 6 Báo cáo bắt buộc: dữ liệu phải lưu vào thư mục `data/` theo cấu trúc chuẩn.*
+
+### 8.1 Vấn đề phát hiện
+
+Trước Phase 4, dữ liệu web scraping chỉ tồn tại trong `data/scraped/` — **không** nằm trong cấu trúc `raw/cleaned/features/processed/` được định nghĩa trong Mục 6. Cụ thể có 3 vấn đề:
+
+| Vấn đề | Chi tiết |
+|---|---|
+| **Agoda data không được xử lý** | `agoda_hotels_vn.csv` (169 rows thô) và `agoda_hotel_prices_vn.csv` (192 rows thô) chứa nhiều dòng rác từ scraper (map links, rating labels, giá tiền dạng `₫ 711,702`) — chưa được làm sạch và lưu vào `data/cleaned/` |
+| **`vn_climate_monthly.csv` scraped có nhiệt độ sai** | `avg_temp_c` cho nhiều tỉnh có giá trị âm (ví dụ: Da Nang tháng 1 = -11.9°C, tháng 7 = 19.8°C) — đây là giá trị anomaly/offset từ scraper, không phải nhiệt độ thực tế |
+| **`vn_tourist_places.csv` thiếu descriptions** | Chỉ 7/267 địa điểm có mô tả. Dữ liệu scraped từ vietnam.travel chưa được tích hợp vào features |
+
+### 8.2 Giải pháp triển khai
+
+Đã bổ sung **6 hàm mới** vào `modules/data_pipeline.py`:
+
+| Hàm | Input | Output | Mô tả |
+|---|---|---|---|
+| `clean_agoda_hotels(df)` | `data/scraped/agoda_hotels_vn.csv` | `data/cleaned/agoda_hotels_vn.csv` | Lọc 169 → 78 khách sạn thực, loại map links / rating labels / price labels |
+| `clean_agoda_prices(df)` | `data/scraped/agoda_hotel_prices_vn.csv` | `data/cleaned/agoda_hotel_prices_vn.csv` | Lọc 192 → 69 entries, validate giá 50K–50M VND/đêm |
+| `build_vn_climate_monthly(df_weather)` | `data/cleaned/vietnam_weather.csv` (181K records) | `data/cleaned/vn_climate_monthly.csv` | Tính khí hậu tháng từ dữ liệu thực tế — **thay thế** file scraped có lỗi |
+| `enrich_places_with_descriptions(places_df)` | `data/scraped/vn_places_detail.csv` | cập nhật `data/features/vn_tourist_places.csv` | Bổ sung mô tả vietnam.travel cho 250/267 địa điểm (từ 7 lên 257) |
+| `build_hotel_price_stats(agoda_prices_df)` | cleaned Agoda prices | `data/features/hotel_price_stats.csv` | Thống kê giá theo tỉnh × tier — cho CSP budget constraints |
+| `enrich_hotels_with_agoda(osm, agoda, prices)` | OSM hotels + cleaned Agoda | cập nhật `data/features/vn_hotels.csv` | Ghép Agoda rating/giá vào danh sách OSM |
+
+### 8.3 Cách xử lý Agoda junk rows
+
+Dữ liệu scraped từ Agoda có cấu trúc: mỗi khách sạn thực sự được đi kèm 3–4 dòng rác:
+
+```
+"Tuna Homestay Experience"     ← Row thực (giữ lại)
+"Quận Tây Hồ,Hà Nội - Xem trên bản đồ"  ← map link  (loại bỏ)
+"Tuyệt vời"                    ← rating label (loại bỏ)
+"Giá trung bình mỗi đêm"       ← price label  (loại bỏ)
+```
+
+Hàm `_is_agoda_junk(name)` detect các pattern này: map links, rating label tiếng Việt/Anh, giá tiền dạng ký hiệu, và dùng regex loại các row chỉ toàn số/tiền tệ.
+
+### 8.4 Tại sao build_vn_climate_monthly() từ weather data thay vì dùng scraped?
+
+```
+Scraped vn_climate_monthly.csv:
+  Da Nang tháng 1: avg_temp_c = -11.9°C  ← SAI (không tồn tại ở Da Nang)
+  Da Nang tháng 7: avg_temp_c =  19.8°C  ← thấp (thực tế ~29°C)
+  → Nguyên nhân: scraper đọc cột anomaly (độ lệch từ trung bình toàn cầu),
+    không phải cột nhiệt độ tuyệt đối
+
+build_vn_climate_monthly() — tính từ 181K records WMO:
+  Ha Noi tháng 1:  avg_temp_c = 17.9°C ✓ (winter, correct for Hanoi)
+  Ha Noi tháng 7:  avg_temp_c = 31.7°C ✓ (summer, correct)
+  → 480 rows (40 tỉnh × 12 tháng), tất cả giá trị hợp lệ
+```
+
+Output `data/cleaned/vn_climate_monthly.csv` có 13 cột:
+`province | month | season | avg_temp_c | avg_temp_max | avg_temp_min | avg_rain_mm | avg_humidity | p_rain | p_outdoor_ok | p_hot | p_humid | record_count`
+
+### 8.5 Cấu trúc thư mục đầu ra (cập nhật sau Phase 4)
+
+```
+data/
+├── raw/
+│   ├── weather.csv                        ← Vietnam Weather (Kaggle)
+│   ├── Hotel_Reviews.csv                  ← 515K Hotel Reviews (Kaggle)
+│   ├── google_review_ratings.csv          ← Travel Ratings UCI (Kaggle)
+│   ├── hotel_bookings.csv                 ← Hotel Booking Demand (Kaggle)
+│   └── Worldwide Travel Cities Dataset... ← World Cities (Kaggle)
+│
+├── cleaned/
+│   ├── vietnam_weather.csv                ← 181,960 rows, 19 cols
+│   ├── hotel_reviews.csv                  ← 515,738 rows, 24 cols
+│   ├── travel_ratings.csv                 ← 5,456 rows, 30 cols
+│   ├── travel_ratings_clustered.csv       ← 5,456 rows, 31 cols (+ cluster label)
+│   ├── hotel_bookings.csv                 ← 118,565 rows, 39 cols
+│   ├── world_cities.csv                   ← 560 rows, 19 cols
+│   ├── agoda_hotels_vn.csv                ← 78 rows (NEW — từ scraped, đã làm sạch)
+│   ├── agoda_hotel_prices_vn.csv          ← 69 rows (NEW — từ scraped, đã làm sạch)
+│   └── vn_climate_monthly.csv             ← 480 rows (NEW — tính từ dữ liệu thực tế)
+│
+├── features/
+│   ├── distance_matrix.npy                ← shape (50, 50), km
+│   ├── cost_matrix.npy                    ← shape (50, 50), VND
+│   ├── travel_time_matrix.npy             ← shape (50, 50), giờ
+│   ├── vn_tourist_places.csv              ← 267 điểm, 10 cols (descriptions enriched)
+│   ├── weather_probabilities.csv          ← 480 rows, province × month
+│   ├── review_tfidf.npz                   ← sparse (50000, 5000)
+│   ├── review_labels.npy                  ← (50000,) binary
+│   ├── review_scores.npy                  ← (50000,) float
+│   ├── tfidf_features.csv                 ← 5000 TF-IDF feature names
+│   ├── user_features.npy                  ← (5456, 24) StandardScaled
+│   ├── user_cluster_labels.npy            ← (5456,) cluster 0–4
+│   ├── vn_tourist_places.csv              ← 267 điểm, có descriptions (enriched)
+│   ├── vn_restaurants.csv                 ← 1,466 nhà hàng VN (OSM)
+│   ├── vn_hotels.csv                      ← 1,511 khách sạn VN (OSM + Agoda)
+│   └── hotel_price_stats.csv              ← 23 rows (NEW — tỉnh × tier, cho CSP)
+│
+└── processed/
+    ├── eda_weather.png
+    ├── eda_weather_corr.png
+    ├── eda_outdoor_season.png
+    ├── eda_reviews.png
+    ├── eda_ratings.png
+    ├── eda_ratings_corr.png
+    ├── eda_hotel_bookings.png
+    ├── distance_matrix_heatmap.png
+    ├── places_map.png
+    ├── weather_rain_prob_heatmap.png
+    └── user_clusters_pca.png
+```
+
+### 8.6 Hướng dẫn sử dụng dữ liệu mới (cho các thành viên)
+
+**Thành viên 2 (CSP — ràng buộc ngân sách thực tế):**
+
+```python
+# Giá khách sạn thực tế theo tỉnh/tier (từ Agoda)
+df_price_stats = pd.read_csv('data/features/hotel_price_stats.csv')
+# Columns: province | price_tier | avg_price | median_price | min_price | max_price | hotel_count
+
+# Ví dụ: giá mid_range ở Hà Nội
+ha_noi_mid = df_price_stats[
+    (df_price_stats['province'] == 'Ha Noi') &
+    (df_price_stats['price_tier'] == 'mid_range')
+]['median_price'].values[0]
+# → 819,463 VND/đêm (dữ liệu thực tế từ Agoda)
+
+# Thay vì dùng bins cố định, CSP có thể dùng phân phối giá thực tế
+```
+
+**Thành viên 3 (Bayesian Network — nhiệt độ thực tế):**
+
+```python
+# Khí hậu tháng chính xác (thay thế weather_probabilities cho query nhiệt độ)
+df_climate = pd.read_csv('data/cleaned/vn_climate_monthly.csv')
+# Columns: province | month | season | avg_temp_c | avg_temp_max | avg_temp_min |
+#          avg_rain_mm | avg_humidity | p_rain | p_outdoor_ok | p_hot | p_humid
+
+# P(rain | Ha Noi, tháng 6)
+row = df_climate[(df_climate['province'] == 'Ha Noi') & (df_climate['month'] == 6)]
+p_rain = row['p_rain'].values[0]        # → 0.52
+avg_temp = row['avg_temp_c'].values[0]  # → 29.8°C (dữ liệu thực)
+```
+
+**Thành viên 4 (ML — descriptions cho user-facing output):**
+
+```python
+# Địa điểm với mô tả đầy đủ (257/267 địa điểm đã có mô tả)
+df_places = pd.read_csv('data/features/vn_tourist_places.csv')
+# Cột 'description' bây giờ có nội dung từ vietnam.travel cho hầu hết địa điểm
+```
+
 | K-Means **k=5** cho user cluster | 5 nhóm traveler phổ biến trong nghiên cứu du lịch: culture, adventure, nature/eco, beach/resort, mixed |
 | `StandardScaler` trước KMeans | KMeans nhạy cảm với scale — bắt buộc phải chuẩn hoá trước |
 | Tách riêng `cleaned/` và `features/` | `cleaned/` = dữ liệu gốc đã lọc (có thể dùng lại); `features/` = đặc trưng đã tính (dùng trực tiếp cho model) |
