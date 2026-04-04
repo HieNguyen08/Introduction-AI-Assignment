@@ -1,0 +1,145 @@
+province,month,month_name,avg_temp_c,rain_mm,humidity_pct,rain_days,source
+Ho Chi Minh,1,Jan,16.2,59.0,76.0,6.0,climate-data.org
+Ho Chi Minh,2,Feb,16.4,59.0,76.0,5.0,climate-data.org
+Ho Chi Minh,3,Mar,15.3,64.0,77.0,6.0,climate-data.org
+Ho Chi Minh,4,Apr,13.4,79.0,79.0,7.0,climate-data.org
+Ho Chi Minh,5,May,11.8,79.0,79.0,8.0,climate-data.org
+Ho Chi Minh,6,Jun,9.9,99.0,79.0,9.0,climate-data.org
+Ho Chi Minh,7,Jul,9.0,92.0,78.0,10.0,climate-data.org
+Ho Chi Minh,8,Aug,9.2,91.0,80.0,10.0,climate-data.org
+Ho Chi Minh,9,Sep,10.3,77.0,79.0,9.0,climate-data.org
+Ho Chi Minh,10,Oct,11.4,88.0,79.0,8.0,climate-data.org
+Ho Chi Minh,11,Nov,12.8,71.0,76.0,7.0,climate-data.org
+Ho Chi Minh,12,Dec,14.8,68.0,78.0,7.0,climate-data.org
+Da Nang,1,Jan,-11.9,51.0,83.0,10.0,climate-data.org
+Da Nang,2,Feb,-10.8,41.0,81.0,8.0,climate-data.org
+Da Nang,3,Mar,-4.2,46.0,81.0,8.0,climate-data.org
+Da Nang,4,Apr,3.2,40.0,74.0,6.0,climate-data.org
+Da Nang,5,May,12.0,56.0,64.0,8.0,climate-data.org
+Da Nang,6,Jun,17.0,72.0,67.0,9.0,climate-data.org
+Da Nang,7,Jul,19.8,69.0,67.0,9.0,climate-data.org
+Da Nang,8,Aug,17.5,70.0,71.0,9.0,climate-data.org
+Da Nang,9,Sep,11.6,67.0,76.0,9.0,climate-data.org
+Da Nang,10,Oct,4.1,71.0,79.0,10.0,climate-data.org
+Da Nang,11,Nov,-3.5,59.0,83.0,9.0,climate-data.org
+Da Nang,12,Dec,-9.4,53.0,84.0,10.0,climate-data.org
+Hue,1,Jan,3.4,90.0,84.0,10.0,climate-data.org
+Hue,2,Feb,3.8,75.0,80.0,9.0,climate-data.org
+Hue,3,Mar,7.1,72.0,75.0,9.0,climate-data.org
+Hue,4,Apr,10.5,81.0,71.0,9.0,climate-data.org
+Hue,5,May,14.2,85.0,72.0,10.0,climate-data.org
+Hue,6,Jun,18.1,69.0,68.0,9.0,climate-data.org
+Hue,7,Jul,20.0,64.0,64.0,8.0,climate-data.org
+Hue,8,Aug,19.8,59.0,66.0,8.0,climate-data.org
+Hue,9,Sep,16.3,68.0,71.0,7.0,climate-data.org
+Hue,10,Oct,12.5,86.0,79.0,9.0,climate-data.org
+Hue,11,Nov,7.3,95.0,85.0,11.0,climate-data.org
+Hue,12,Dec,4.3,100.0,85.0,11.0,climate-data.org
+Nha Trang,1,Jan,9.4,101.0,80.0,11.0,climate-data.org
+Nha Trang,2,Feb,9.7,94.0,77.0,10.0,climate-data.org
+Nha Trang,3,Mar,11.7,63.0,72.0,7.0,climate-data.org
+Nha Trang,4,Apr,14.7,35.0,65.0,4.0,climate-data.org
+Nha Trang,5,May,19.0,25.0,57.0,3.0,climate-data.org
+Nha Trang,6,Jun,23.1,7.0,51.0,1.0,climate-data.org
+Nha Trang,7,Jul,25.2,2.0,51.0,0.0,climate-data.org
+Nha Trang,8,Aug,25.0,3.0,55.0,1.0,climate-data.org
+Nha Trang,9,Sep,22.4,19.0,61.0,2.0,climate-data.org
+Nha Trang,10,Oct,18.4,48.0,70.0,5.0,climate-data.org
+Nha Trang,11,Nov,14.6,70.0,76.0,7.0,climate-data.org
+Nha Trang,12,Dec,11.0,107.0,80.0,11.0,climate-data.org
+Da Lat,1,Jan,10.4,156.0,77.0,11.0,climate-data.org
+Da Lat,2,Feb,10.5,140.0,75.0,10.0,climate-data.org
+Da Lat,3,Mar,12.2,88.0,73.0,8.0,climate-data.org
+Da Lat,4,Apr,14.6,39.0,70.0,4.0,climate-data.org
+Da Lat,5,May,18.3,26.0,66.0,3.0,climate-data.org
+Da Lat,6,Jun,22.2,6.0,62.0,1.0,climate-data.org
+Da Lat,7,Jul,24.7,3.0,60.0,1.0,climate-data.org
+Da Lat,8,Aug,24.8,6.0,63.0,1.0,climate-data.org
+Da Lat,9,Sep,22.2,27.0,68.0,3.0,climate-data.org
+Da Lat,10,Oct,18.8,82.0,73.0,7.0,climate-data.org
+Da Lat,11,Nov,15.5,109.0,75.0,8.0,climate-data.org
+Da Lat,12,Dec,12.1,171.0,77.0,12.0,climate-data.org
+Hoi An,1,Jan,-2.9,59.0,84.0,8.0,climate-data.org
+Hoi An,2,Feb,-1.3,56.0,81.0,8.0,climate-data.org
+Hoi An,3,Mar,3.1,64.0,74.0,9.0,climate-data.org
+Hoi An,4,Apr,9.0,69.0,68.0,9.0,climate-data.org
+Hoi An,5,May,13.5,100.0,71.0,10.0,climate-data.org
+Hoi An,6,Jun,17.1,100.0,71.0,10.0,climate-data.org
+Hoi An,7,Jul,18.9,109.0,71.0,10.0,climate-data.org
+Hoi An,8,Aug,18.6,88.0,71.0,9.0,climate-data.org
+Hoi An,9,Sep,13.9,81.0,75.0,8.0,climate-data.org
+Hoi An,10,Oct,8.7,64.0,81.0,8.0,climate-data.org
+Hoi An,11,Nov,4.1,67.0,86.0,8.0,climate-data.org
+Hoi An,12,Dec,-1.1,63.0,85.0,9.0,climate-data.org
+Can Tho,1,Jan,3.1,60.0,84.0,7.0,climate-data.org
+Can Tho,2,Feb,3.8,38.0,77.0,5.0,climate-data.org
+Can Tho,3,Mar,6.5,47.0,70.0,6.0,climate-data.org
+Can Tho,4,Apr,8.9,55.0,68.0,8.0,climate-data.org
+Can Tho,5,May,12.7,54.0,63.0,8.0,climate-data.org
+Can Tho,6,Jun,17.7,34.0,54.0,5.0,climate-data.org
+Can Tho,7,Jul,20.1,20.0,49.0,3.0,climate-data.org
+Can Tho,8,Aug,20.1,21.0,49.0,3.0,climate-data.org
+Can Tho,9,Sep,17.0,31.0,54.0,4.0,climate-data.org
+Can Tho,10,Oct,11.9,74.0,70.0,7.0,climate-data.org
+Can Tho,11,Nov,6.2,62.0,81.0,8.0,climate-data.org
+Can Tho,12,Dec,3.7,63.0,82.0,7.0,climate-data.org
+Phu Quoc,1,Jan,27.1,213.0,75.0,12.0,climate-data.org
+Phu Quoc,2,Feb,26.8,217.0,78.0,13.0,climate-data.org
+Phu Quoc,3,Mar,26.1,143.0,76.0,10.0,climate-data.org
+Phu Quoc,4,Apr,24.5,59.0,72.0,6.0,climate-data.org
+Phu Quoc,5,May,22.2,34.0,68.0,5.0,climate-data.org
+Phu Quoc,6,Jun,20.0,26.0,68.0,3.0,climate-data.org
+Phu Quoc,7,Jul,19.3,18.0,65.0,2.0,climate-data.org
+Phu Quoc,8,Aug,20.3,17.0,65.0,2.0,climate-data.org
+Phu Quoc,9,Sep,22.6,13.0,65.0,3.0,climate-data.org
+Phu Quoc,10,Oct,24.6,26.0,65.0,4.0,climate-data.org
+Phu Quoc,11,Nov,25.9,52.0,68.0,7.0,climate-data.org
+Phu Quoc,12,Dec,27.1,96.0,70.0,10.0,climate-data.org
+Sapa,1,Jan,-3.9,49.0,87.0,9.0,climate-data.org
+Sapa,2,Feb,-2.9,43.0,86.0,8.0,climate-data.org
+Sapa,3,Mar,1.0,45.0,79.0,8.0,climate-data.org
+Sapa,4,Apr,7.5,47.0,69.0,7.0,climate-data.org
+Sapa,5,May,13.0,61.0,68.0,9.0,climate-data.org
+Sapa,6,Jun,16.4,76.0,69.0,9.0,climate-data.org
+Sapa,7,Jul,18.8,87.0,73.0,10.0,climate-data.org
+Sapa,8,Aug,18.0,77.0,72.0,9.0,climate-data.org
+Sapa,9,Sep,13.4,62.0,77.0,8.0,climate-data.org
+Sapa,10,Oct,7.6,54.0,82.0,8.0,climate-data.org
+Sapa,11,Nov,3.2,47.0,88.0,8.0,climate-data.org
+Sapa,12,Dec,-0.9,51.0,87.0,9.0,climate-data.org
+Ninh Binh,1,Jan,-1.3,55.0,84.0,10.0,climate-data.org
+Ninh Binh,2,Feb,-0.4,45.0,82.0,8.0,climate-data.org
+Ninh Binh,3,Mar,2.8,50.0,77.0,9.0,climate-data.org
+Ninh Binh,4,Apr,8.0,47.0,72.0,7.0,climate-data.org
+Ninh Binh,5,May,13.0,60.0,70.0,8.0,climate-data.org
+Ninh Binh,6,Jun,16.4,73.0,71.0,9.0,climate-data.org
+Ninh Binh,7,Jul,18.8,90.0,74.0,10.0,climate-data.org
+Ninh Binh,8,Aug,18.6,80.0,73.0,9.0,climate-data.org
+Ninh Binh,9,Sep,14.6,67.0,75.0,8.0,climate-data.org
+Ninh Binh,10,Oct,9.5,66.0,79.0,9.0,climate-data.org
+Ninh Binh,11,Nov,5.2,58.0,85.0,9.0,climate-data.org
+Ninh Binh,12,Dec,1.3,59.0,84.0,10.0,climate-data.org
+Mui Ne,1,Jan,8.5,25.0,38.0,3.0,climate-data.org
+Mui Ne,2,Feb,10.4,31.0,36.0,4.0,climate-data.org
+Mui Ne,3,Mar,15.1,17.0,27.0,2.0,climate-data.org
+Mui Ne,4,Apr,19.1,8.0,19.0,2.0,climate-data.org
+Mui Ne,5,May,24.4,6.0,16.0,1.0,climate-data.org
+Mui Ne,6,Jun,30.5,2.0,12.0,0.0,climate-data.org
+Mui Ne,7,Jul,33.4,8.0,17.0,2.0,climate-data.org
+Mui Ne,8,Aug,32.0,11.0,20.0,1.0,climate-data.org
+Mui Ne,9,Sep,27.8,8.0,19.0,1.0,climate-data.org
+Mui Ne,10,Oct,20.4,9.0,26.0,1.0,climate-data.org
+Mui Ne,11,Nov,13.5,10.0,31.0,1.0,climate-data.org
+Mui Ne,12,Dec,7.9,22.0,42.0,3.0,climate-data.org
+Ha Giang,1,Jan,-3.0,47.0,85.0,9.0,climate-data.org
+Ha Giang,2,Feb,-1.9,44.0,83.0,7.0,climate-data.org
+Ha Giang,3,Mar,2.1,46.0,76.0,8.0,climate-data.org
+Ha Giang,4,Apr,8.4,49.0,68.0,8.0,climate-data.org
+Ha Giang,5,May,13.7,68.0,67.0,9.0,climate-data.org
+Ha Giang,6,Jun,17.1,78.0,67.0,9.0,climate-data.org
+Ha Giang,7,Jul,19.4,88.0,70.0,10.0,climate-data.org
+Ha Giang,8,Aug,18.6,72.0,69.0,9.0,climate-data.org
+Ha Giang,9,Sep,13.9,65.0,74.0,8.0,climate-data.org
+Ha Giang,10,Oct,8.3,52.0,80.0,7.0,climate-data.org
+Ha Giang,11,Nov,3.9,47.0,87.0,8.0,climate-data.org
+Ha Giang,12,Dec,-0.3,50.0,86.0,8.0,climate-data.org
