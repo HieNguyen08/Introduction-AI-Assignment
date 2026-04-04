@@ -30,6 +30,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from math import radians, sin, cos, sqrt, atan2
+from typing import Optional
 
 warnings.filterwarnings("ignore")
 
@@ -809,7 +810,56 @@ def save_feature_csv(df, name):
 
 
 # ============================================================
-# 6. FULL PIPELINE
+# 6. OSM-BASED SUPPLEMENTARY FEATURES
+# ============================================================
+
+def build_restaurants_dataframe() -> Optional[pd.DataFrame]:
+    """
+    Tải dữ liệu nhà hàng Việt Nam từ OSM JSON (10,221 entries).
+
+    Trả về DataFrame với các cột:
+        name, latitude, longitude, province, cuisine,
+        open_hour, close_hour, takeaway, outdoor_seating, wheelchair
+
+    Trả về None nếu không tìm thấy file OSM.
+    """
+    try:
+        from modules.osm_loader import load_osm_restaurants
+        df = load_osm_restaurants()
+        if df is not None and not df.empty:
+            logger.info("FEATURE Restaurants: %d entries", len(df))
+        return df
+    except Exception as exc:
+        logger.warning("build_restaurants_dataframe failed: %s", exc)
+        return None
+
+
+def build_hotels_dataframe() -> Optional[pd.DataFrame]:
+    """
+    Tải dữ liệu khách sạn Việt Nam từ OSM JSON (2,630 entries).
+
+    Trả về DataFrame với các cột:
+        name, latitude, longitude, province, property_type,
+        star_rating, price_tier, estimated_price_vnd, wheelchair, internet_access
+
+    Lưu ý: star_rating chỉ có dữ liệu cho ~40/2630 entries;
+    estimated_price_vnd được ước lượng từ star_rating.
+
+    Trả về None nếu không tìm thấy file OSM.
+    """
+    try:
+        from modules.osm_loader import load_osm_hotels
+        df = load_osm_hotels()
+        if df is not None and not df.empty:
+            logger.info("FEATURE Hotels: %d entries", len(df))
+        return df
+    except Exception as exc:
+        logger.warning("build_hotels_dataframe failed: %s", exc)
+        return None
+
+
+# ============================================================
+# 7. FULL PIPELINE
 # ============================================================
 
 def run_full_pipeline(skip_download=False):
@@ -888,10 +938,22 @@ def run_full_pipeline(skip_download=False):
     save_features(time_matrix, "travel_time_matrix")
     result["time_matrix"] = time_matrix
 
-    # Places DataFrame
-    df_places = build_places_dataframe()
+    # Places DataFrame (base 50 + OSM enrichment)
+    df_places = build_places_dataframe(use_osm=True)
     save_feature_csv(df_places, "vn_tourist_places")
     result["places"] = df_places
+
+    # Restaurants from OSM
+    df_restaurants = build_restaurants_dataframe()
+    if df_restaurants is not None and not df_restaurants.empty:
+        save_feature_csv(df_restaurants, "vn_restaurants")
+        result["restaurants"] = df_restaurants
+
+    # Hotels from OSM
+    df_hotels = build_hotels_dataframe()
+    if df_hotels is not None and not df_hotels.empty:
+        save_feature_csv(df_hotels, "vn_hotels")
+        result["hotels"] = df_hotels
 
     # Weather probability table
     if "weather" in result:
@@ -906,5 +968,9 @@ def run_full_pipeline(skip_download=False):
     n_datasets = len([k for k in result if isinstance(result[k], pd.DataFrame)])
     logger.info("Datasets loaded: %d", n_datasets)
     logger.info("Feature matrices: distance, cost, travel_time (%d places)", len(place_names))
+    if "restaurants" in result:
+        logger.info("Restaurants: %d VN entries", len(result["restaurants"]))
+    if "hotels" in result:
+        logger.info("Hotels: %d VN entries", len(result["hotels"]))
 
     return result

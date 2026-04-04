@@ -296,6 +296,247 @@ def load_osm_places(
     return df
 
 
+# ---------------------------------------------------------------------------
+# Opening-hours parser
+# ---------------------------------------------------------------------------
+import re as _re
+
+def parse_opening_hours(raw: str) -> tuple[int, int] | None:
+    """
+    Parse an OSM opening_hours string into (open_hour, close_hour) ints.
+
+    Handles common formats:
+        "08:00-22:00"            → (8, 22)
+        "Mo-Su 07:00-23:00"     → (7, 23)
+        "24/7"                   → (0, 24)
+        "Mo-Fr 09:00-17:00; Sa 10:00-14:00"  → (9, 17)  [first rule only]
+
+    Returns None if unparseable.
+    """
+    if not raw:
+        return None
+    raw = raw.strip()
+    if raw in ("24/7", "24/7;", "always"):
+        return (0, 24)
+    # Find HH:MM-HH:MM anywhere in the string (first occurrence)
+    m = _re.search(r"(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})", raw)
+    if m:
+        open_h  = int(m.group(1))
+        close_h = int(m.group(3))
+        if 0 <= open_h <= 23 and 1 <= close_h <= 24:
+            return (open_h, close_h)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Cuisine normalisation
+# ---------------------------------------------------------------------------
+_CUISINE_MAP = {
+    # Vietnamese
+    "vietnamese": "vietnamese", "pho": "vietnamese", "bun": "vietnamese",
+    "banh_mi": "vietnamese", "com": "vietnamese",
+    # Seafood
+    "seafood": "seafood", "fish": "seafood", "sushi": "japanese",
+    # Asian
+    "japanese": "japanese", "ramen": "japanese",
+    "chinese": "chinese", "korean": "korean", "thai": "asian",
+    "asian": "asian",
+    # Western / Fast food
+    "burger": "fast_food", "pizza": "western", "italian": "western",
+    "american": "fast_food", "fast_food": "fast_food", "sandwich": "fast_food",
+    "steak": "western", "french": "western",
+    # Cafe / Drinks
+    "coffee_shop": "cafe", "cafe": "cafe", "tea": "cafe",
+    "ice_cream": "cafe", "juice": "cafe",
+    # BBQ / Grill
+    "bbq": "bbq", "grill": "bbq", "hotpot": "bbq",
+}
+
+def _normalise_cuisine(raw_list: list) -> str:
+    """Map a list of raw OSM cuisine tags to one of our cuisine buckets."""
+    if not raw_list:
+        return "unknown"
+    for item in raw_list:
+        tag = str(item).lower().replace(" ", "_")
+        if tag in _CUISINE_MAP:
+            return _CUISINE_MAP[tag]
+    # If no known tag, return the first raw value
+    return str(raw_list[0]).lower()[:20] if raw_list else "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Restaurant loader
+# ---------------------------------------------------------------------------
+
+def load_osm_restaurants(
+    json_path: Optional[str] = None,
+    min_name_len: int = 3,
+    max_per_province: int = 100,
+) -> Optional[pd.DataFrame]:
+    """
+    Load Vietnam restaurants from pbf_asia.json.
+
+    All 10,221 VN restaurant entries have opening_hours populated.
+    Returns DataFrame with columns:
+        name, latitude, longitude, province, cuisine, open_hour, close_hour,
+        takeaway, outdoor_seating, wheelchair
+    Returns None if the JSON file is not found.
+    """
+    path = json_path or OSM_JSON
+    if not os.path.exists(path):
+        logger.warning("OSM JSON not found: %s", path)
+        return None
+
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    vn_raw = [r for r in raw.get("restaurants", []) if r.get("country_code") == "VN"]
+    logger.info("Vietnam restaurants in OSM JSON: %d", len(vn_raw))
+
+    rows = []
+    for r in vn_raw:
+        # Pick best available name
+        name = (r.get("name_en") or r.get("name") or "").strip()
+        if len(name) < min_name_len:
+            continue
+
+        lat = r.get("lat")
+        lon = r.get("lon")
+        if lat is None or lon is None:
+            continue
+        if not (8.18 <= lat <= 23.39 and 102.14 <= lon <= 109.46):
+            continue
+
+        province = _resolve_province(r.get("city", ""), lat, lon)
+
+        hours = parse_opening_hours(r.get("opening_hours", ""))
+        open_h, close_h = hours if hours else (7, 22)
+
+        cuisine = _normalise_cuisine(r.get("cuisine") or [])
+
+        rows.append({
+            "name":             name,
+            "latitude":         round(lat, 6),
+            "longitude":        round(lon, 6),
+            "province":         province,
+            "cuisine":          cuisine,
+            "open_hour":        open_h,
+            "close_hour":       close_h,
+            "takeaway":         bool(r.get("takeaway")),
+            "outdoor_seating":  bool(r.get("outdoor_seating")),
+            "wheelchair":       bool(r.get("wheelchair")),
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    # Dedup by name + location
+    df = df.drop_duplicates(subset=["name", "province"]).reset_index(drop=True)
+
+    # Province cap
+    if max_per_province:
+        df = (
+            df.groupby("province")
+              .head(max_per_province)
+              .reset_index(drop=True)
+        )
+
+    logger.info("OSM restaurants loaded: %d (VN)", len(df))
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Hotel loader
+# ---------------------------------------------------------------------------
+
+def load_osm_hotels(
+    json_path: Optional[str] = None,
+    min_name_len: int = 4,
+    max_per_province: int = 100,
+) -> Optional[pd.DataFrame]:
+    """
+    Load Vietnam hotels from pbf_asia.json.
+
+    Note: star_rating populated for only ~40/2630 entries; price_per_night = 0.
+    Returns DataFrame with columns:
+        name, latitude, longitude, province, property_type, star_rating,
+        price_tier, wheelchair, internet_access
+    Returns None if the JSON file is not found.
+    """
+    path = json_path or OSM_JSON
+    if not os.path.exists(path):
+        logger.warning("OSM JSON not found: %s", path)
+        return None
+
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    vn_raw = [h for h in raw.get("hotels", []) if h.get("country_code") == "VN"]
+    logger.info("Vietnam hotels in OSM JSON: %d", len(vn_raw))
+
+    # Estimate price tier from star_rating (stars → VND/night rough estimate)
+    _STAR_TO_TIER = {1: "budget", 2: "budget", 3: "mid_range",
+                     4: "premium", 5: "luxury"}
+    _TIER_PRICE = {
+        "budget": 500_000, "mid_range": 1_500_000,
+        "premium": 3_000_000, "luxury": 6_000_000, "unknown": 1_000_000,
+    }
+
+    rows = []
+    for h in vn_raw:
+        name = (h.get("name_en") or h.get("name") or "").strip()
+        if len(name) < min_name_len:
+            continue
+
+        lat = h.get("lat")
+        lon = h.get("lon")
+        if lat is None or lon is None:
+            continue
+        if not (8.18 <= lat <= 23.39 and 102.14 <= lon <= 109.46):
+            continue
+
+        province = _resolve_province(h.get("city", ""), lat, lon)
+
+        star = h.get("star_rating")
+        try:
+            star = int(star) if star is not None else None
+        except (TypeError, ValueError):
+            star = None
+
+        tier = _STAR_TO_TIER.get(star, "unknown")
+        estimated_price = _TIER_PRICE[tier]
+
+        rows.append({
+            "name":              name,
+            "latitude":          round(lat, 6),
+            "longitude":         round(lon, 6),
+            "province":          province,
+            "property_type":     (h.get("property_type") or "HOTEL").upper(),
+            "star_rating":       star,
+            "price_tier":        tier,
+            "estimated_price_vnd": estimated_price,
+            "wheelchair":        bool(h.get("wheelchair")),
+            "internet_access":   bool(h.get("internet_access")),
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    # Dedup + province cap
+    df = df.drop_duplicates(subset=["name", "province"]).reset_index(drop=True)
+    if max_per_province:
+        df = (
+            df.groupby("province")
+              .head(max_per_province)
+              .reset_index(drop=True)
+        )
+
+    logger.info("OSM hotels loaded: %d (VN)", len(df))
+    return df
+
+
 def merge_with_base(
     base_df: pd.DataFrame,
     osm_df: Optional[pd.DataFrame],
