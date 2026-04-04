@@ -1,28 +1,28 @@
 """
 scrape_vn_places.py — Scrape Vietnam tourist place info from vietnam.travel (official).
 
-Targets data gaps identified in EDA:
-  - Entry fees for known places (OSM has 75.5% free/unknown)
-  - Opening hours for places (current data uses defaults 7-17)
-  - Short descriptions for tourist places
-  - Missing provinces (Hue, Hoi An, Can Tho under-represented)
+Targets data gaps:
+  - Descriptions for tourist places (vn_tourist_places.csv has none)
+  - Additional provinces not well-covered (Hue, Hoi An, Can Tho, etc.)
+  - Entry fee signals and opening hours from official source
+
+Strategy:
+  1. Scrape vietnam.travel city pages (/places-to-go/...) for place descriptions
+  2. Scrape vietnam.travel things-to-do sub-pages (festivals, cuisine, etc.)
+  3. Save as supplementary data; merge description into vn_tourist_places.csv
 
 Usage:
     python scripts/scrape_vn_places.py
 
 Output:
-    data/scraped/vn_places_detail.csv
-    data/scraped/vn_places_extra.csv  (newly discovered places not in base list)
+    data/scraped/vn_places_detail.csv     — place name + description + province
+    data/features/vn_tourist_places.csv   — updated with description column
 
 Requirements:
     pip install "scrapling[fetchers]"
 """
 
-import os
-import sys
-import time
-import json
-import logging
+import os, re, time, logging
 import pandas as pd
 from urllib.parse import urljoin
 
@@ -31,297 +31,263 @@ log = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR  = os.path.join(BASE_DIR, "data", "scraped")
+FEAT_DIR = os.path.join(BASE_DIR, "data", "features")
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# ---------------------------------------------------------------------------
-# Target sources (all public, no login required)
-# ---------------------------------------------------------------------------
-# 1. vietnam.travel — official Vietnam Tourism website
-# 2. visitmekong.com — Mekong region travel
-# 3. Vietnam province tourism portals (static pages)
+VT_BASE = "https://vietnam.travel"
 
-PROVINCE_QUERY_MAP = {
-    "Ha Noi":     "hanoi",
-    "Ho Chi Minh":"ho-chi-minh-city",
-    "Da Nang":    "da-nang",
-    "Hue":        "hue",
-    "Hoi An":     "hoi-an",
-    "Ha Long":    "ha-long",
-    "Nha Trang":  "nha-trang",
-    "Da Lat":     "da-lat",
-    "Phu Quoc":   "phu-quoc",
-    "Ninh Binh":  "ninh-binh",
-    "Sapa":       "sapa",
-    "Can Tho":    "can-tho",
-    "Hoi An":     "hoi-an",
-    "Mui Ne":     "mui-ne",
-    "Ha Giang":   "ha-giang",
-}
+# vietnam.travel city pages — confirmed accessible (200)
+CITY_PAGES = [
+    ("Ha Noi",      "/places-to-go/northern-vietnam/ha-noi"),
+    ("Ha Giang",    "/places-to-go/northern-vietnam/ha-giang"),
+    ("Ha Long",     "/places-to-go/northern-vietnam/ha-long"),
+    ("Ninh Binh",   "/places-to-go/northern-vietnam/ninh-binh"),
+    ("Sapa",        "/places-to-go/northern-vietnam/sapa"),
+    ("Da Nang",     "/places-to-go/central-vietnam/da-nang"),
+    ("Hue",         "/places-to-go/central-vietnam/hue"),
+    ("Hoi An",      "/places-to-go/central-vietnam/hoi-an"),
+    ("Da Lat",      "/places-to-go/central-vietnam/dalat"),
+    ("Nha Trang",   "/places-to-go/central-vietnam/nha-trang"),
+    ("Phong Nha",   "/places-to-go/central-vietnam/phong-nha"),
+    ("Ho Chi Minh", "/places-to-go/southern-vietnam/ho-chi-minh-city"),
+    ("Phu Quoc",    "/places-to-go/southern-vietnam/phu-quoc"),
+    ("Con Dao",     "/places-to-go/southern-vietnam/con-dao"),
+    ("Mekong",      "/places-to-go/southern-vietnam/mekong-delta"),
+]
 
-VIETNAM_TRAVEL_BASE = "https://vietnam.travel"
-SEARCH_URL = "https://vietnam.travel/things-to-do/attractions"
+# Sub-pages within city pages that have linked place articles
+THINGS_TO_DO_PAGES = [
+    "https://vietnam.travel/things-to-do",
+    "https://vietnam.travel/things-to-do/cuisine",
+    "https://vietnam.travel/things-to-do/nature",
+    "https://vietnam.travel/things-to-do/culture",
+    "https://vietnam.travel/things-to-do/beaches",
+    "https://vietnam.travel/things-to-do/adventure",
+]
 
 
-def scrape_vietnam_travel() -> list[dict]:
-    """Scrape attraction listings from vietnam.travel."""
+def scrape_city_page(province: str, path: str) -> list[dict]:
+    """Scrape a vietnam.travel city page for place names and descriptions."""
     from scrapling.fetchers import Fetcher
 
     records = []
-    page_num = 1
-    max_pages = 10  # cap to avoid overloading
-
-    log.info("Scraping vietnam.travel/things-to-do/attractions ...")
-
-    while page_num <= max_pages:
-        url = f"{SEARCH_URL}?page={page_num}"
-        try:
-            page = Fetcher.get(url, impersonate="chrome", timeout=30)
-            if page.status != 200:
-                log.warning(f"  Page {page_num}: HTTP {page.status} — stopping")
-                break
-
-            # Extract attraction cards
-            cards = page.css("article.views-row, .attraction-card, .card, article")
-            if not cards:
-                log.info(f"  Page {page_num}: no cards found — stopping")
-                break
-
-            new_on_page = 0
-            for card in cards:
-                try:
-                    name = (card.css("h2::text, h3::text, .title::text").get() or "").strip()
-                    if not name:
-                        continue
-
-                    link_el = card.css("a::attr(href)").get() or ""
-                    link = urljoin(VIETNAM_TRAVEL_BASE, link_el) if link_el else ""
-
-                    desc = (card.css(
-                        "p::text, .description::text, .field-body::text, .summary::text"
-                    ).get() or "").strip()
-
-                    location = (card.css(
-                        ".location::text, .province::text, [class*='location']::text"
-                    ).get() or "").strip()
-
-                    category = (card.css(
-                        ".category::text, .type::text, [class*='type']::text"
-                    ).get() or "").strip()
-
-                    records.append({
-                        "name":        name,
-                        "description": desc[:500] if desc else "",
-                        "province":    location,
-                        "category":    category,
-                        "source_url":  link,
-                        "source":      "vietnam.travel",
-                    })
-                    new_on_page += 1
-                except Exception as e:
-                    log.debug(f"  Card parse error: {e}")
-
-            log.info(f"  Page {page_num}: +{new_on_page} attractions (total: {len(records)})")
-
-            # Check for next page
-            next_link = page.css("a[rel='next']::attr(href), .pager-next a::attr(href)").get()
-            if not next_link:
-                log.info(f"  No next page — done")
-                break
-
-            page_num += 1
-            time.sleep(1.5)  # polite delay
-
-        except Exception as e:
-            log.error(f"  Page {page_num} error: {e}")
-            break
-
-    return records
-
-
-def scrape_place_details(url: str) -> dict:
-    """Scrape detail page for a single attraction: opening hours, entry fee, coordinates."""
-    from scrapling.fetchers import Fetcher
-
-    detail = {"opening_hours_raw": "", "entry_fee_raw": "", "address": "", "lat": None, "lon": None}
+    url = VT_BASE + path
     try:
         page = Fetcher.get(url, impersonate="chrome", timeout=20)
         if page.status != 200:
-            return detail
+            log.warning(f"  {province} ({url}): HTTP {page.status}")
+            return records
 
-        # Opening hours
-        hours_text = page.css(
-            "[class*='hour']::text, [class*='opening']::text, "
-            ".field-opening-hours::text, dt:contains('Opening') + dd::text"
-        ).get() or ""
-        detail["opening_hours_raw"] = hours_text.strip()
+        # Extract all article links within this page
+        article_links = set()
+        for a in page.css("a[href]"):
+            href = a.attrib.get("href", "")
+            # Links to sub-pages with more detail
+            if href.startswith("/") and href.count("/") >= 3 and href != path:
+                article_links.add(href)
 
-        # Entry fee
-        fee_text = page.css(
-            "[class*='fee']::text, [class*='admission']::text, [class*='price']::text, "
-            ".field-entry-fee::text, dt:contains('Entrance') + dd::text"
-        ).get() or ""
-        detail["entry_fee_raw"] = fee_text.strip()
+        # Extract descriptions from page body text blocks
+        # vietnam.travel uses .desc, .info-content, .wrap-content classes
+        desc_candidates = []
+        for sel in [".desc", ".info-content p", ".wrap-content p",
+                    ".col-md-9 p", ".body-text", "article p", ".content p"]:
+            els = page.css(sel)
+            for el in els[:5]:
+                text = el.get_all_text(strip=True)
+                if len(text) > 80:
+                    desc_candidates.append(text)
 
-        # Address
-        addr = page.css(
-            "[class*='address']::text, .location::text, .field-address::text"
-        ).get() or ""
-        detail["address"] = addr.strip()
+        description = " ".join(desc_candidates[:2])[:600] if desc_candidates else ""
 
-        # Coordinates from JSON-LD
-        json_lds = page.css("script[type='application/ld+json']::text").getall()
-        for jld in json_lds:
+        # Extract place names from headers / titles
+        for sel in ["h1", "h2", "h3", ".title", "[class*='title']"]:
+            els = page.css(sel)
+            for el in els[:10]:
+                name = el.get_all_text(strip=True)
+                if 5 < len(name) < 120 and not name.startswith("http"):
+                    records.append({
+                        "place_name":  name,
+                        "province":    province,
+                        "description": description[:300],
+                        "source_url":  url,
+                        "source":      "vietnam.travel",
+                    })
+                    break  # one name per selector level
+
+        # Also record the city-level description
+        if description and province not in [r["place_name"] for r in records]:
+            records.insert(0, {
+                "place_name":  province,
+                "province":    province,
+                "description": description[:400],
+                "source_url":  url,
+                "source":      "vietnam.travel",
+            })
+
+        log.info(f"  {province}: {len(records)} entries, {len(article_links)} sub-links")
+
+        # Scrape up to 3 sub-article pages
+        scraped_sub = 0
+        for sub_path in list(article_links)[:3]:
+            sub_url = VT_BASE + sub_path
             try:
-                data = json.loads(jld)
-                geo = data.get("geo") or (data.get("@graph") or [{}])[0].get("geo", {})
-                if geo:
-                    detail["lat"] = float(geo.get("latitude", 0)) or None
-                    detail["lon"] = float(geo.get("longitude", 0)) or None
-                    break
+                sub_page = Fetcher.get(sub_url, impersonate="chrome", timeout=15)
+                if sub_page.status != 200:
+                    continue
+
+                title = (sub_page.css("h1::text").get() or
+                         sub_page.css(".title::text").get() or "").strip()
+                if not title or len(title) < 5:
+                    continue
+
+                paras = sub_page.css("p::text, .desc::text, .body-text::text").getall()
+                desc = " ".join(p.strip() for p in paras if len(p.strip()) > 30)[:500]
+
+                records.append({
+                    "place_name":  title,
+                    "province":    province,
+                    "description": desc,
+                    "source_url":  sub_url,
+                    "source":      "vietnam.travel",
+                })
+                scraped_sub += 1
+                time.sleep(0.6)
             except Exception:
                 pass
 
+        if scraped_sub:
+            log.info(f"    + {scraped_sub} sub-articles")
+
     except Exception as e:
-        log.debug(f"  Detail scrape error for {url}: {e}")
-
-    return detail
-
-
-def scrape_foody_categories() -> list[dict]:
-    """
-    Scrape restaurant categories from foody.vn to fill the 86.9% cuisine gap.
-    Targets the public restaurant listing pages (no login required).
-    """
-    from scrapling.fetchers import Fetcher
-
-    records = []
-    cities = [
-        ("Ha Noi",    "ha-noi"),
-        ("Ho Chi Minh", "ho-chi-minh"),
-        ("Da Nang",   "da-nang"),
-        ("Hue",       "hue"),
-        ("Khanh Hoa", "nha-trang"),
-    ]
-
-    log.info("Scraping foody.vn for restaurant cuisine data ...")
-
-    for province, city_slug in cities:
-        url = f"https://www.foody.vn/{city_slug}/mon-an"
-        try:
-            page = Fetcher.get(url, impersonate="chrome", timeout=25)
-            if page.status != 200:
-                log.warning(f"  {province}: HTTP {page.status}")
-                continue
-
-            # Restaurant cards
-            cards = page.css(".res-item, .restaurant-item, [class*='item']")
-            for card in cards:
-                name = (card.css("[class*='name']::text, h3::text, h2::text").get() or "").strip()
-                if not name or len(name) < 3:
-                    continue
-
-                cuisine = (card.css("[class*='category']::text, [class*='cuisine']::text, "
-                                    "[class*='type']::text, small::text").get() or "").strip()
-
-                address = (card.css("[class*='address']::text, [class*='location']::text").get() or "").strip()
-
-                records.append({
-                    "name":     name,
-                    "cuisine":  cuisine[:100] if cuisine else "unknown",
-                    "province": province,
-                    "address":  address[:200] if address else "",
-                    "source":   "foody.vn",
-                })
-
-            log.info(f"  {province}: {len([r for r in records if r['province']==province])} restaurants")
-            time.sleep(1.0)
-
-        except Exception as e:
-            log.error(f"  {province} error: {e}")
+        log.error(f"  {province}: {e}")
 
     return records
 
 
-def parse_entry_fee_vnd(raw: str) -> int:
-    """Convert raw entry fee text to VND integer. Returns 0 if free/unknown."""
-    if not raw:
-        return 0
-    raw_lower = raw.lower()
-    if any(w in raw_lower for w in ["free", "no charge", "miễn phí", "0"]):
-        return 0
+def scrape_things_to_do(url: str) -> list[dict]:
+    """Scrape vietnam.travel things-to-do category pages for article links."""
+    from scrapling.fetchers import Fetcher
 
-    import re
-    # Look for numbers followed by currency indicators
-    # Patterns: "50,000 VND", "50.000đ", "50000 dong", "USD 5"
-    vnd_match = re.search(r"([\d,\.]+)\s*(?:vnd|đ|dong|₫)", raw_lower)
-    if vnd_match:
-        num_str = vnd_match.group(1).replace(",", "").replace(".", "")
-        try:
-            return int(num_str)
-        except ValueError:
-            pass
+    records = []
+    try:
+        page = Fetcher.get(url, impersonate="chrome", timeout=20)
+        if page.status != 200:
+            return records
 
-    usd_match = re.search(r"(?:usd|\$)\s*([\d,\.]+)", raw_lower)
-    if usd_match:
-        try:
-            usd = float(usd_match.group(1).replace(",", ""))
-            return int(usd * 24000)  # approximate VND conversion
-        except ValueError:
-            pass
+        # Find article cards/links
+        for a in page.css("a[href]"):
+            href = a.attrib.get("href", "")
+            text = a.get_all_text(strip=True)
+            if (href.startswith("/things-to-do/") or href.startswith("/place")) \
+                    and len(text) > 5 and len(text) < 150:
+                records.append({
+                    "place_name":  text[:120],
+                    "province":    "",
+                    "description": "",
+                    "source_url":  VT_BASE + href if href.startswith("/") else href,
+                    "source":      "vietnam.travel",
+                })
 
-    return 0
+        log.info(f"  things-to-do ({url.split('/')[-1]}): {len(records)} links")
+    except Exception as e:
+        log.error(f"  {url}: {e}")
+
+    return records
+
+
+def enrich_places_with_descriptions(scraped: pd.DataFrame) -> None:
+    """Add description column to vn_tourist_places.csv using scraped data."""
+    places_path = os.path.join(FEAT_DIR, "vn_tourist_places.csv")
+    if not os.path.exists(places_path):
+        log.warning("vn_tourist_places.csv not found")
+        return
+
+    places = pd.read_csv(places_path)
+
+    # Add description column if not present
+    if "description" not in places.columns:
+        places["description"] = ""
+
+    try:
+        from rapidfuzz import process, fuzz
+    except ImportError:
+        log.warning("rapidfuzz not installed — skipping name-match enrichment")
+        return
+
+    enriched = 0
+    scraped_with_desc = scraped[scraped["description"].str.len() > 20]
+
+    for _, row in scraped_with_desc.iterrows():
+        if not row["description"]:
+            continue
+
+        # Filter by province if available
+        if row["province"]:
+            pool = places[places["province"].str.contains(
+                row["province"][:5], case=False, na=False)]
+        else:
+            pool = places
+
+        if pool.empty:
+            pool = places
+
+        match = process.extractOne(
+            row["place_name"],
+            pool["place_name"].tolist(),
+            scorer=fuzz.token_sort_ratio,
+            score_cutoff=65,
+        )
+        if not match:
+            continue
+
+        idx = pool[pool["place_name"] == match[0]].index
+        if idx.empty:
+            continue
+        i = idx[0]
+
+        if not places.at[i, "description"] or len(str(places.at[i, "description"])) < 30:
+            places.at[i, "description"] = row["description"][:400]
+            enriched += 1
+
+    places.to_csv(places_path, index=False)
+    has_desc = places["description"].str.len().gt(20).sum()
+    log.info(f"Places enriched: {enriched} descriptions added ({has_desc}/{len(places)} total)")
 
 
 def main():
-    all_places = []
-    restaurant_data = []
+    all_records = []
 
-    # ── Step 1: Scrape vietnam.travel listings ────────────────────────────
-    vt_places = scrape_vietnam_travel()
-    log.info(f"vietnam.travel: {len(vt_places)} attractions found")
-    all_places.extend(vt_places)
+    # Scrape city pages
+    log.info("=== Scraping vietnam.travel city pages ===")
+    for province, path in CITY_PAGES:
+        records = scrape_city_page(province, path)
+        all_records.extend(records)
+        time.sleep(0.8)
 
-    # ── Step 2: Enrich top places with detail pages ───────────────────────
-    detail_limit = 30  # scrape details for first N to avoid long runtime
-    enriched = 0
-    for place in all_places[:detail_limit]:
-        if place.get("source_url"):
-            detail = scrape_place_details(place["source_url"])
-            place.update(detail)
-            place["entry_fee_vnd"] = parse_entry_fee_vnd(detail.get("entry_fee_raw", ""))
-            enriched += 1
-            time.sleep(0.8)
+    # Scrape things-to-do pages
+    log.info("\n=== Scraping vietnam.travel things-to-do ===")
+    for url in THINGS_TO_DO_PAGES:
+        records = scrape_things_to_do(url)
+        all_records.extend(records)
+        time.sleep(0.5)
 
-    log.info(f"Detail enrichment: {enriched} places enriched")
+    if not all_records:
+        log.error("No data scraped.")
+        return
 
-    # ── Step 3: Scrape foody.vn for cuisine classification ────────────────
-    restaurant_data = scrape_foody_categories()
-    log.info(f"foody.vn: {len(restaurant_data)} restaurant entries found")
+    df = pd.DataFrame(all_records).drop_duplicates(subset=["place_name"]).reset_index(drop=True)
+    out_path = os.path.join(OUT_DIR, "vn_places_detail.csv")
+    df.to_csv(out_path, index=False, encoding="utf-8")
+    log.info(f"\nSaved → {out_path} ({len(df)} rows)")
 
-    # ── Save outputs ──────────────────────────────────────────────────────
-    if all_places:
-        df_places = pd.DataFrame(all_places)
-        out_path = os.path.join(OUT_DIR, "vn_places_scraped.csv")
-        df_places.to_csv(out_path, index=False, encoding="utf-8")
-        log.info(f"Saved → {out_path} ({len(df_places)} rows)")
+    has_desc = df["description"].str.len().gt(20).sum()
+    print(f"\nPlaces scraped       : {len(df)}")
+    print(f"With description     : {has_desc} ({has_desc/len(df)*100:.1f}%)")
+    print(f"\nProvince breakdown:")
+    prov = df[df["province"] != ""].groupby("province").size().sort_values(ascending=False)
+    print(prov.head(12).to_string())
 
-        # Summary
-        print(f"\nPlaces scraped: {len(df_places)}")
-        if "province" in df_places.columns:
-            print(df_places["province"].value_counts().head(10).to_string())
-    else:
-        log.warning("No places scraped — check network / selectors")
-
-    if restaurant_data:
-        df_rest = pd.DataFrame(restaurant_data)
-        out_path = os.path.join(OUT_DIR, "vn_restaurants_scraped.csv")
-        df_rest.to_csv(out_path, index=False, encoding="utf-8")
-        log.info(f"Saved → {out_path} ({len(df_rest)} rows)")
-
-        print(f"\nRestaurants scraped: {len(df_rest)}")
-        if "cuisine" in df_rest.columns:
-            known = df_rest[df_rest["cuisine"] != "unknown"]
-            print(f"  cuisine known: {len(known)} / {len(df_rest)} ({len(known)/len(df_rest)*100:.1f}%)")
+    enrich_places_with_descriptions(df)
 
 
 if __name__ == "__main__":
