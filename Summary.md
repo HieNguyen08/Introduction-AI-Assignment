@@ -492,14 +492,1015 @@ File: `notebooks/main_notebook.ipynb` (21 cells mới)
 
 | Hạng mục | Phụ trách | Trạng thái | Ghi chú |
 |---|---|---|---|
-| Chọn đề tài | Cả nhóm | Hoàn thành | Kết hợp ý tưởng #3 + #6 |
-| Đối chiếu yêu cầu PDF | Cả nhóm | Hoàn thành | Đáp ứng 5/5 thành phần |
-| Phân công nhóm | Cả nhóm | Hoàn thành | 4 người |
-| Research datasets | TV1 | Hoàn thành | 10 datasets, tổng > 300 MB |
-| Viết module data_pipeline.py | TV1 | Hoàn thành | Download + Clean + Feature Engineering |
-| Viết notebook (EDA + preprocessing) | TV1 | Hoàn thành | 6 sections, 11 biểu đồ, 14 feature files |
-| (A) A* Search + (B) CSP Solver | TV2 | Chưa bắt đầu | `search.py` + `csp_solver.py` + `planner.py` |
-| (C) IF-THEN Rules + (D) Bayesian Network | TV3 | **Hoàn thành** | `knowledge_base.py` (18 luật IF-THEN) + `bayesian_net.py` (5 nodes Bayes) + tích hợp C+D |
-| (E) Decision Tree + Naive Bayes | TV4 | Chưa bắt đầu | `ml_models.py` |
-| Tích hợp hệ thống + Testing | TV4 | Chưa bắt đầu | Kết nối A→E, test end-to-end |
-| Báo cáo | Cả nhóm | Chưa bắt đầu | Mỗi người viết phần mình (Overleaf) |
+| Chọn đề tài | Cả nhóm | ✅ Hoàn thành | Kết hợp ý tưởng #3 + #6 |
+| Đối chiếu yêu cầu PDF | Cả nhóm | ✅ Hoàn thành | Đáp ứng 5/5 thành phần |
+| Phân công nhóm | Cả nhóm | ✅ Hoàn thành | 4 người |
+| Research datasets | TV1 | ✅ Hoàn thành | 10 datasets, tổng > 300 MB |
+| Viết module `data_pipeline.py` | TV1 | ✅ Hoàn thành | Download + Clean + Feature Engineering (17 file outputs) |
+| Viết notebook (EDA + preprocessing + Colab compliance) | TV1 | ✅ Hoàn thành | `Runtime → Run All` OK, Kaggle Secrets, scipy/kaggle installed |
+| **(A) A* Search + (B) CSP Solver** | **TV2** | ❌ **Chưa bắt đầu** | `search.py` + `csp_solver.py` → xem **Mục 10** để hướng dẫn chi tiết |
+| (C) IF-THEN Rules + (D) Bayesian Network | TV3 | ✅ Hoàn thành | `knowledge_base.py` (18 luật) + `bayesian_net.py` (5 nodes) + tích hợp C+D vào `planner.py` |
+| (E) Decision Tree + Naive Bayes | TV4 | ✅ Hoàn thành | `ml_models.py` (merged via system-integration) |
+| Tích hợp hệ thống + Testing | TV4 | 🔄 Chờ TV2 | Cần A*/CSP để kết nối đầy đủ A→E |
+| Báo cáo | Cả nhóm | ❌ Chưa bắt đầu | Mỗi người viết phần mình (Overleaf) |
+
+---
+
+## 10. Hướng dẫn code cho TV2 — Thành phần (A) A* + (B) CSP
+
+> **Dành cho Huy (TV2 — Trần Ngọc Khánh Huy)**. Đây là hướng dẫn chi tiết để cài đặt `search.py` và `csp_solver.py`, tích hợp vào `planner.py`. Data đã sẵn sàng, TV3 đã xây xong khung `planner.py` với stubs chờ TV2.
+
+### 10.1 Dữ liệu đã sẵn sàng (không cần tạo thêm)
+
+| File | Shape / Size | Nội dung | Dùng cho |
+|---|---|---|---|
+| `data/features/vn_tourist_places.csv` | 267 hàng × 10 cột | Địa điểm VN: tên, toạ độ, category, tỉnh, phí vào cổng, giờ mở/đóng cửa, visit_duration | A* + CSP |
+| `data/features/distance_matrix.npy` | (50, 50) — km | Ma trận khoảng cách giữa 50 địa điểm đầu tiên (0.2–1,639 km) | A* cost / heuristic |
+| `data/features/cost_matrix.npy` | (50, 50) — VND | Chi phí di chuyển giữa 50 địa điểm (~3,000 VND/km) | A* cost / CSP |
+| `data/features/travel_time_matrix.npy` | (50, 50) — giờ | Thời gian di chuyển giữa 50 địa điểm (0–41 giờ) | A* cost / CSP |
+| `data/features/hotel_price_stats.csv` | 23 hàng × 7 cột | Giá khách sạn trung bình theo tỉnh và hạng (budget/mid/premium) | CSP ràng buộc ngân sách |
+| `data/cleaned/hotel_bookings.csv` | 118,565 hàng × 39 cột | Booking data: adr (giá/đêm), budget_level, total_nights, season | CSP phân tích ngân sách |
+
+> ⚠️ **Quan trọng**: Ma trận 50×50 tương ứng với **50 địa điểm ĐẦU TIÊN** trong `vn_tourist_places.csv` (index 0–49). Khi dùng A*, chỉ index các địa điểm trong vùng đó.
+
+**Cột của `vn_tourist_places.csv`:**
+```
+place_name, latitude, longitude, category, province,
+entry_fee_vnd, visit_duration_hours, opening_hour, closing_hour, description
+```
+
+**Cột của `hotel_price_stats.csv`:**
+```
+province, price_tier (budget/mid_range/premium),
+avg_price, median_price, min_price, max_price, hotel_count
+```
+
+### 10.2 Kiến trúc tổng quan — Luồng A* + CSP trong hệ thống
+
+```
+Input: province, month, group_type, budget_vnd, num_days, user_preferences
+        ↓
+[planner.filter_and_rank_places()]  ← đã có (TV3)
+        ↓ ranked_places (filtered by weather + rules)
+[CSP Solver]  ← TV2 viết
+        ↓ feasible_schedule: {day_1: [p1, p2, p3], day_2: [...], ...}
+[A* Search]   ← TV2 viết (chạy trên từng ngày)
+        ↓ optimal_route per day (thứ tự tham quan tối ưu)
+Output: daily_plan với route đã tối ưu
+```
+
+### 10.3 Module `modules/search.py` — Thuật toán A*
+
+#### Định nghĩa bài toán tìm kiếm
+
+| Thành phần | Định nghĩa |
+|---|---|
+| **State** | `(current_idx, visited_frozenset, time_used_h, budget_used_vnd)` |
+| **Initial State** | `(start_idx, frozenset({start_idx}), 0.0, 0.0)` |
+| **Action** | Di chuyển đến địa điểm chưa thăm trong `candidates` |
+| **Goal Test** | Đã thăm tất cả địa điểm trong `candidates` |
+| **Cost g(n)** | `travel_time + visit_duration` (hoặc kết hợp thời gian + chi phí) |
+| **Heuristic h(n)** | MST trên các địa điểm chưa thăm (admissible) hoặc nearest-neighbor lower bound |
+
+#### Template code `modules/search.py`
+
+```python
+"""
+search.py — Thuật toán A* tìm lộ trình tối ưu giữa các điểm du lịch.
+
+TV2: Trần Ngọc Khánh Huy
+"""
+
+import heapq
+import numpy as np
+import pandas as pd
+from typing import List, Tuple, Optional, Dict, Any, FrozenSet
+import os
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FEATURES_DIR = os.path.join(BASE_DIR, "data", "features")
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+def load_matrices():
+    """Load ma trận khoảng cách, chi phí, thời gian."""
+    dist  = np.load(os.path.join(FEATURES_DIR, "distance_matrix.npy"))
+    cost  = np.load(os.path.join(FEATURES_DIR, "cost_matrix.npy"))
+    ttime = np.load(os.path.join(FEATURES_DIR, "travel_time_matrix.npy"))
+    return dist, cost, ttime
+
+def load_places() -> pd.DataFrame:
+    """Load 50 địa điểm đầu tiên (tương ứng với ma trận 50x50)."""
+    df = pd.read_csv(os.path.join(FEATURES_DIR, "vn_tourist_places.csv"))
+    return df.head(50).reset_index(drop=True)
+
+
+# ============================================================
+# STATE & NODE
+# ============================================================
+
+class SearchState:
+    """
+    State trong không gian tìm kiếm A*.
+    
+    Attributes:
+        current_idx (int): Index địa điểm hiện tại (0-49)
+        visited (FrozenSet[int]): Tập các index đã thăm
+        time_used (float): Tổng giờ đã dùng (di chuyển + tham quan)
+        cost_used (float): Tổng VND đã chi (vé + di chuyển)
+    """
+    def __init__(self, current_idx: int, visited: FrozenSet[int],
+                 time_used: float, cost_used: float):
+        self.current_idx = current_idx
+        self.visited = visited
+        self.time_used = time_used
+        self.cost_used = cost_used
+
+    def __eq__(self, other):
+        return (self.current_idx == other.current_idx and
+                self.visited == other.visited)
+
+    def __hash__(self):
+        return hash((self.current_idx, self.visited))
+
+    def __lt__(self, other):
+        # Dùng cho heapq (không cần so sánh state trực tiếp)
+        return False
+
+
+class SearchNode:
+    """Node trong cây tìm kiếm A*."""
+    def __init__(self, state: SearchState, parent=None,
+                 g: float = 0.0, h: float = 0.0):
+        self.state = state
+        self.parent = parent
+        self.g = g       # chi phí thực tế từ start
+        self.h = h       # ước lượng heuristic đến goal
+        self.f = g + h   # tổng chi phí ước lượng
+
+    def __lt__(self, other):
+        return self.f < other.f
+
+
+# ============================================================
+# HEURISTIC
+# ============================================================
+
+def heuristic_mst(
+    current_idx: int,
+    remaining: List[int],
+    time_matrix: np.ndarray,
+) -> float:
+    """
+    Heuristic admissible: MST (Minimum Spanning Tree) trên các đỉnh chưa thăm.
+    
+    Đây là lower bound của thời gian cần để thăm hết remaining,
+    vì MST là cây khung nhỏ nhất — không thể đi ít hơn.
+    
+    Args:
+        current_idx: Index địa điểm hiện tại
+        remaining: Danh sách index chưa thăm
+        time_matrix: Ma trận thời gian di chuyển (giờ)
+    
+    Returns:
+        Lower bound thời gian di chuyển (giờ)
+    """
+    if not remaining:
+        return 0.0
+
+    # Tập đỉnh = current + remaining
+    nodes = [current_idx] + remaining
+    n = len(nodes)
+
+    if n == 1:
+        return 0.0
+
+    # Prim's algorithm cho MST
+    in_mst = [False] * n
+    min_edge = [float('inf')] * n
+    min_edge[0] = 0.0
+    total_weight = 0.0
+
+    for _ in range(n):
+        # Tìm đỉnh chưa trong MST có min_edge nhỏ nhất
+        u = -1
+        for v in range(n):
+            if not in_mst[v] and (u == -1 or min_edge[v] < min_edge[u]):
+                u = v
+        in_mst[u] = True
+        total_weight += min_edge[u]
+
+        # Cập nhật min_edge cho các đỉnh kề
+        for v in range(n):
+            if not in_mst[v]:
+                w = time_matrix[nodes[u]][nodes[v]]
+                if w < min_edge[v]:
+                    min_edge[v] = w
+
+    return total_weight
+
+
+def heuristic_nearest(
+    current_idx: int,
+    remaining: List[int],
+    time_matrix: np.ndarray,
+) -> float:
+    """
+    Heuristic đơn giản hơn: khoảng cách đến điểm gần nhất trong remaining.
+    Admissible nhưng kém chính xác hơn MST.
+    Dùng khi n nhỏ hoặc cần tốc độ nhanh hơn.
+    """
+    if not remaining:
+        return 0.0
+    return min(time_matrix[current_idx][r] for r in remaining)
+
+
+# ============================================================
+# A* SEARCH
+# ============================================================
+
+def astar_route(
+    start_idx: int,
+    candidates: List[int],
+    places_df: pd.DataFrame,
+    time_matrix: np.ndarray,
+    cost_matrix: np.ndarray,
+    time_limit_hours: float = 10.0,
+    budget_limit_vnd: float = float('inf'),
+    use_mst_heuristic: bool = True,
+) -> Dict[str, Any]:
+    """
+    Tìm lộ trình tối ưu (thứ tự tham quan) trong một ngày bằng A*.
+    
+    Args:
+        start_idx: Index điểm xuất phát (trong places_df, cũng là index ma trận)
+        candidates: Danh sách index các điểm cần thăm trong ngày
+        places_df: DataFrame 50 điểm đầu (vn_tourist_places.csv)
+        time_matrix: Ma trận thời gian di chuyển (giờ), shape (50, 50)
+        cost_matrix: Ma trận chi phí di chuyển (VND), shape (50, 50)
+        time_limit_hours: Giới hạn thời gian trong ngày (mặc định 10 giờ)
+        budget_limit_vnd: Giới hạn ngân sách di chuyển (VND)
+        use_mst_heuristic: True = MST (tốt hơn), False = nearest neighbor (nhanh hơn)
+    
+    Returns:
+        Dict:
+            "route": List[int] — thứ tự index địa điểm tối ưu
+            "total_time": float — tổng giờ (di chuyển + tham quan)
+            "total_travel_cost": float — tổng VND di chuyển
+            "total_entry_fee": float — tổng VND vé vào cổng
+            "found": bool — tìm được lộ trình hay không
+            "path_names": List[str] — tên các địa điểm theo thứ tự
+    """
+    if not candidates:
+        return {"route": [], "total_time": 0, "total_travel_cost": 0,
+                "total_entry_fee": 0, "found": True, "path_names": []}
+
+    # Thêm start_idx vào visited ban đầu nếu start không phải điểm tham quan
+    all_targets = frozenset(candidates)
+    initial_visited = frozenset({start_idx}) if start_idx not in candidates else frozenset()
+
+    initial_state = SearchState(
+        current_idx=start_idx,
+        visited=initial_visited,
+        time_used=0.0,
+        cost_used=0.0,
+    )
+
+    def is_goal(state: SearchState) -> bool:
+        return all_targets.issubset(state.visited)
+
+    def get_remaining(visited: FrozenSet[int]) -> List[int]:
+        return [c for c in candidates if c not in visited]
+
+    def compute_h(state: SearchState) -> float:
+        remaining = get_remaining(state.visited)
+        if use_mst_heuristic:
+            return heuristic_mst(state.current_idx, remaining, time_matrix)
+        return heuristic_nearest(state.current_idx, remaining, time_matrix)
+
+    h0 = compute_h(initial_state)
+    start_node = SearchNode(initial_state, parent=None, g=0.0, h=h0)
+
+    open_list = []
+    heapq.heappush(open_list, start_node)
+    closed = {}  # state -> g value
+
+    while open_list:
+        node = heapq.heappop(open_list)
+        state = node.state
+
+        # Kiểm tra goal
+        if is_goal(state):
+            # Truy vết đường đi
+            route = []
+            cur = node
+            while cur.parent is not None:
+                route.append(cur.state.current_idx)
+                cur = cur.parent
+            route.reverse()
+
+            entry_fees = sum(
+                places_df.iloc[idx]["entry_fee_vnd"]
+                for idx in route if idx < len(places_df)
+            )
+            names = [places_df.iloc[idx]["place_name"] for idx in route if idx < len(places_df)]
+
+            return {
+                "route": route,
+                "total_time": state.time_used,
+                "total_travel_cost": state.cost_used,
+                "total_entry_fee": entry_fees,
+                "found": True,
+                "path_names": names,
+            }
+
+        # Kiểm tra closed list
+        state_key = (state.current_idx, state.visited)
+        if state_key in closed and closed[state_key] <= node.g:
+            continue
+        closed[state_key] = node.g
+
+        # Expand: thử đi đến các điểm chưa thăm
+        remaining = get_remaining(state.visited)
+        for next_idx in remaining:
+            travel_t = time_matrix[state.current_idx][next_idx]
+            travel_c = cost_matrix[state.current_idx][next_idx]
+            visit_t  = places_df.iloc[next_idx]["visit_duration_hours"] if next_idx < len(places_df) else 1.0
+
+            new_time = state.time_used + travel_t + visit_t
+            new_cost = state.cost_used + travel_c
+
+            # Pruning: vượt giới hạn thời gian hoặc ngân sách
+            if new_time > time_limit_hours or new_cost > budget_limit_vnd:
+                continue
+
+            new_visited = state.visited | frozenset({next_idx})
+            new_state = SearchState(next_idx, new_visited, new_time, new_cost)
+
+            new_state_key = (next_idx, new_visited)
+            if new_state_key in closed and closed[new_state_key] <= node.g + travel_t + visit_t:
+                continue
+
+            h = compute_h(new_state)
+            new_node = SearchNode(new_state, parent=node,
+                                  g=node.g + travel_t + visit_t, h=h)
+            heapq.heappush(open_list, new_node)
+
+    # Không tìm được lộ trình hoàn chỉnh → trả về greedy tốt nhất
+    return _greedy_fallback(start_idx, candidates, places_df, time_matrix,
+                            cost_matrix, time_limit_hours)
+
+
+def _greedy_fallback(
+    start_idx: int,
+    candidates: List[int],
+    places_df: pd.DataFrame,
+    time_matrix: np.ndarray,
+    cost_matrix: np.ndarray,
+    time_limit_hours: float,
+) -> Dict[str, Any]:
+    """Greedy nearest-neighbor fallback khi A* không tìm được đường."""
+    current = start_idx
+    remaining = list(candidates)
+    route = []
+    total_time = 0.0
+    total_cost = 0.0
+
+    while remaining:
+        # Chọn điểm gần nhất chưa thăm
+        nearest = min(remaining, key=lambda x: time_matrix[current][x])
+        travel_t = time_matrix[current][nearest]
+        visit_t = places_df.iloc[nearest]["visit_duration_hours"] if nearest < len(places_df) else 1.0
+
+        if total_time + travel_t + visit_t > time_limit_hours:
+            break
+
+        total_time += travel_t + visit_t
+        total_cost += cost_matrix[current][nearest]
+        route.append(nearest)
+        remaining.remove(nearest)
+        current = nearest
+
+    entry_fees = sum(places_df.iloc[idx]["entry_fee_vnd"] for idx in route if idx < len(places_df))
+    names = [places_df.iloc[idx]["place_name"] for idx in route if idx < len(places_df)]
+
+    return {
+        "route": route,
+        "total_time": total_time,
+        "total_travel_cost": total_cost,
+        "total_entry_fee": entry_fees,
+        "found": False,   # đánh dấu là fallback
+        "path_names": names,
+    }
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
+
+def find_optimal_daily_route(
+    day_places_df: pd.DataFrame,
+    places_df: pd.DataFrame,
+    time_matrix: np.ndarray,
+    cost_matrix: np.ndarray,
+    time_limit_hours: float = 10.0,
+    budget_vnd: float = float('inf'),
+) -> Dict[str, Any]:
+    """
+    API chính: tìm thứ tự tham quan tối ưu trong một ngày.
+    
+    Args:
+        day_places_df: Subset DataFrame các địa điểm trong ngày (từ CSP output)
+        places_df: Full DataFrame 50 địa điểm (để tra index ma trận)
+        time_matrix: Ma trận thời gian (50x50)
+        cost_matrix: Ma trận chi phí (50x50)
+        time_limit_hours: Giờ tối đa trong ngày
+        budget_vnd: Ngân sách di chuyển trong ngày
+    
+    Returns:
+        Dict với "route", "total_time", "total_travel_cost", "path_names"
+    """
+    # Lấy index trong ma trận cho từng địa điểm
+    place_names = list(places_df["place_name"])
+    
+    candidates = []
+    for _, row in day_places_df.iterrows():
+        if row["place_name"] in place_names:
+            idx = place_names.index(row["place_name"])
+            candidates.append(idx)
+    
+    if not candidates:
+        return {"route": [], "total_time": 0, "total_travel_cost": 0,
+                "total_entry_fee": 0, "found": True, "path_names": []}
+    
+    start_idx = candidates[0]
+    return astar_route(
+        start_idx=start_idx,
+        candidates=candidates,
+        places_df=places_df,
+        time_matrix=time_matrix,
+        cost_matrix=cost_matrix,
+        time_limit_hours=time_limit_hours,
+        budget_limit_vnd=budget_vnd,
+    )
+```
+
+### 10.4 Module `modules/csp_solver.py` — CSP với Backtracking + Forward Checking
+
+#### Định nghĩa bài toán CSP
+
+| Thành phần | Định nghĩa |
+|---|---|
+| **Variables** | `X_d` = danh sách địa điểm được chọn cho ngày `d` (d = 1..num_days) |
+| **Domains** | Tập địa điểm đã được filter+rank bởi `filter_and_rank_places()` |
+| **Constraints** | (1) Tổng chi phí ≤ budget; (2) Tổng giờ/ngày ≤ time_limit; (3) Mỗi địa điểm thăm ≤ 1 lần; (4) Giờ mở/đóng cửa; (5) Ngân sách khách sạn theo tỉnh |
+| **Objective** | Tối đa hoá tổng `bayesian_score` của các địa điểm được chọn |
+
+#### Template code `modules/csp_solver.py`
+
+```python
+"""
+csp_solver.py — CSP Backtracking + Forward Checking cho lịch trình du lịch.
+
+TV2: Trần Ngọc Khánh Huy
+"""
+
+import numpy as np
+import pandas as pd
+from typing import List, Dict, Tuple, Optional, Any
+import os
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FEATURES_DIR = os.path.join(BASE_DIR, "data", "features")
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+def load_hotel_price_stats() -> pd.DataFrame:
+    """Load bảng giá khách sạn theo tỉnh."""
+    path = os.path.join(FEATURES_DIR, "hotel_price_stats.csv")
+    if os.path.exists(path):
+        return pd.read_csv(path)
+    return pd.DataFrame()
+
+
+def get_hotel_cost(province: str, budget_level: str,
+                   num_nights: int, stats_df: pd.DataFrame) -> float:
+    """
+    Ước tính chi phí khách sạn.
+    
+    Args:
+        province: Tên tỉnh (e.g., "Da Nang", "Ha Noi")
+        budget_level: "budget" | "mid_range" | "premium"
+        num_nights: Số đêm ở
+        stats_df: DataFrame từ hotel_price_stats.csv
+    
+    Returns:
+        Tổng chi phí VND
+    """
+    if stats_df.empty:
+        # Fallback: ước tính mặc định
+        defaults = {"budget": 300_000, "mid_range": 800_000, "premium": 2_500_000}
+        return defaults.get(budget_level, 500_000) * num_nights
+
+    mask = (stats_df["province"].str.lower() == province.lower()) & \
+           (stats_df["price_tier"] == budget_level)
+    row = stats_df[mask]
+    if row.empty:
+        # Dùng median toàn quốc cho tier đó
+        fallback = stats_df[stats_df["price_tier"] == budget_level]["median_price"]
+        price = fallback.median() if not fallback.empty else 500_000
+    else:
+        price = row.iloc[0]["median_price"]
+    return price * num_nights
+
+
+# ============================================================
+# CONSTRAINT CHECKERS
+# ============================================================
+
+def check_time_constraint(
+    places: List[pd.Series],
+    time_matrix: np.ndarray,
+    places_df: pd.DataFrame,
+    time_limit_hours: float = 10.0,
+) -> Tuple[bool, float]:
+    """
+    Kiểm tra ràng buộc thời gian: tổng (di chuyển + tham quan) ≤ time_limit_hours.
+    
+    Returns:
+        (feasible: bool, total_time: float)
+    """
+    if not places:
+        return True, 0.0
+
+    place_names = list(places_df["place_name"])
+    total_time = 0.0
+
+    # Thời gian tham quan
+    for p in places:
+        total_time += p.get("visit_duration_hours", 1.0)
+
+    # Thời gian di chuyển (theo thứ tự tham quan hiện tại — sẽ tối ưu bởi A*)
+    for i in range(len(places) - 1):
+        name_a = places[i]["place_name"]
+        name_b = places[i + 1]["place_name"]
+        if name_a in place_names and name_b in place_names:
+            idx_a = place_names.index(name_a)
+            idx_b = place_names.index(name_b)
+            if idx_a < time_matrix.shape[0] and idx_b < time_matrix.shape[1]:
+                total_time += time_matrix[idx_a][idx_b]
+
+    return total_time <= time_limit_hours, total_time
+
+
+def check_budget_constraint(
+    all_assigned: List[pd.Series],
+    province: str,
+    num_days: int,
+    budget_vnd: float,
+    budget_level: str,
+    stats_df: pd.DataFrame,
+    time_matrix: np.ndarray,
+    cost_matrix: np.ndarray,
+    places_df: pd.DataFrame,
+) -> Tuple[bool, float]:
+    """
+    Kiểm tra ràng buộc ngân sách:
+        Σ(vé vào cổng) + Σ(chi phí di chuyển) + chi phí khách sạn ≤ budget_vnd
+    
+    Returns:
+        (feasible: bool, total_cost: float)
+    """
+    # Vé vào cổng
+    entry_fees = sum(p.get("entry_fee_vnd", 0) for p in all_assigned)
+
+    # Chi phí di chuyển (ước tính)
+    place_names = list(places_df["place_name"])
+    travel_cost = 0.0
+    for i in range(len(all_assigned) - 1):
+        na = all_assigned[i]["place_name"]
+        nb = all_assigned[i + 1]["place_name"]
+        if na in place_names and nb in place_names:
+            ia, ib = place_names.index(na), place_names.index(nb)
+            if ia < cost_matrix.shape[0] and ib < cost_matrix.shape[1]:
+                travel_cost += cost_matrix[ia][ib]
+
+    # Chi phí khách sạn
+    hotel_cost = get_hotel_cost(province, budget_level, num_days, stats_df)
+
+    total_cost = entry_fees + travel_cost + hotel_cost
+    return total_cost <= budget_vnd, total_cost
+
+
+def check_opening_hours(place: pd.Series, start_hour: int = 8) -> bool:
+    """
+    Kiểm tra giờ mở cửa:
+        opening_hour ≤ start_hour < closing_hour - visit_duration
+    """
+    opening = place.get("opening_hour", 0)
+    closing = place.get("closing_hour", 24)
+    duration = place.get("visit_duration_hours", 1.0)
+    return opening <= start_hour and (start_hour + duration) <= closing
+
+
+def forward_check(
+    candidate: pd.Series,
+    assigned_today: List[pd.Series],
+    remaining_budget: float,
+    remaining_time: float,
+    places_df: pd.DataFrame,
+    time_matrix: np.ndarray,
+    cost_matrix: np.ndarray,
+) -> bool:
+    """
+    Forward Checking: kiểm tra xem thêm candidate có vi phạm ràng buộc không.
+    
+    Returns:
+        True nếu có thể thêm candidate (không vi phạm), False nếu prune.
+    """
+    # Kiểm tra phí vào cổng
+    fee = candidate.get("entry_fee_vnd", 0)
+    if fee > remaining_budget:
+        return False
+
+    # Kiểm tra thời gian tham quan
+    visit_t = candidate.get("visit_duration_hours", 1.0)
+    if visit_t > remaining_time:
+        return False
+
+    # Kiểm tra thời gian di chuyển từ điểm cuối cùng
+    if assigned_today:
+        place_names = list(places_df["place_name"])
+        last = assigned_today[-1]
+        last_name = last["place_name"]
+        cand_name = candidate["place_name"]
+        if last_name in place_names and cand_name in place_names:
+            ia = place_names.index(last_name)
+            ib = place_names.index(cand_name)
+            if ia < time_matrix.shape[0] and ib < time_matrix.shape[1]:
+                travel_t = time_matrix[ia][ib]
+                if visit_t + travel_t > remaining_time:
+                    return False
+
+    return True
+
+
+# ============================================================
+# BACKTRACKING CSP SOLVER
+# ============================================================
+
+def csp_backtrack(
+    day: int,
+    num_days: int,
+    domain: List[pd.Series],
+    schedule: Dict[int, List[pd.Series]],
+    assigned_global: set,
+    province: str,
+    budget_vnd: float,
+    budget_level: str,
+    time_limit_per_day: float,
+    max_places_per_day: int,
+    stats_df: pd.DataFrame,
+    time_matrix: np.ndarray,
+    cost_matrix: np.ndarray,
+    places_df: pd.DataFrame,
+    best_solution: Dict,
+) -> bool:
+    """
+    Backtracking với Forward Checking.
+    Điền lịch trình từng ngày, tối đa hoá tổng bayesian_score.
+    
+    Args:
+        day: Ngày đang xử lý (1-indexed)
+        num_days: Tổng số ngày
+        domain: Danh sách địa điểm có thể chọn (đã được filter + rank)
+        schedule: Dict {day: [places]} — kết quả đang xây dựng
+        assigned_global: Set tên các địa điểm đã được gán (tránh trùng)
+        ...
+    
+    Returns:
+        True nếu tìm được lịch trình hợp lệ
+    """
+    if day > num_days:
+        # Tất cả ngày đã được gán → lưu nếu tốt hơn best
+        all_places = [p for d in range(1, num_days + 1) for p in schedule.get(d, [])]
+        total_score = sum(p.get("bayesian_score", p.get("final_score", 0)) for p in all_places)
+        
+        feasible, total_cost = check_budget_constraint(
+            all_places, province, num_days, budget_vnd, budget_level,
+            stats_df, time_matrix, cost_matrix, places_df
+        )
+        
+        if feasible and total_score > best_solution.get("score", -1):
+            best_solution["schedule"] = {k: list(v) for k, v in schedule.items()}
+            best_solution["score"] = total_score
+            best_solution["total_cost"] = total_cost
+        return feasible
+
+    schedule[day] = []
+    remaining_time = time_limit_per_day
+    # Ước tính ngân sách còn lại cho ngày này (chia đều)
+    all_prev = [p for d in range(1, day) for p in schedule.get(d, [])]
+    spent_so_far = sum(p.get("entry_fee_vnd", 0) for p in all_prev)
+    remaining_budget = budget_vnd * 0.6 - spent_so_far  # 60% budget cho vé + di chuyển
+
+    # Duyệt qua domain (đã sắp xếp theo bayesian_score giảm dần)
+    for candidate in domain:
+        cand_name = candidate["place_name"]
+
+        # Ràng buộc: không thăm lại
+        if cand_name in assigned_global:
+            continue
+
+        # Forward Checking
+        if not forward_check(candidate, schedule[day], remaining_budget,
+                             remaining_time, places_df, time_matrix, cost_matrix):
+            continue
+
+        # Kiểm tra giờ mở cửa
+        start_hour = 8 + len(schedule[day])  # ước tính giờ đến
+        if not check_opening_hours(candidate, start_hour):
+            continue
+
+        # Thêm vào schedule ngày hiện tại
+        schedule[day].append(candidate)
+        assigned_global.add(cand_name)
+
+        visit_t = candidate.get("visit_duration_hours", 1.0)
+        fee = candidate.get("entry_fee_vnd", 0)
+        remaining_time -= visit_t
+        remaining_budget -= fee
+
+        if len(schedule[day]) >= max_places_per_day:
+            # Ngày đầy → chuyển sang ngày kế
+            if csp_backtrack(day + 1, num_days, domain, schedule,
+                             assigned_global, province, budget_vnd, budget_level,
+                             time_limit_per_day, max_places_per_day, stats_df,
+                             time_matrix, cost_matrix, places_df, best_solution):
+                return True
+
+        remaining_time += visit_t
+        remaining_budget += fee
+        schedule[day].pop()
+        assigned_global.discard(cand_name)
+
+    # Chuyển sang ngày tiếp dù ngày hiện tại chưa đầy
+    return csp_backtrack(day + 1, num_days, domain, schedule,
+                         assigned_global, province, budget_vnd, budget_level,
+                         time_limit_per_day, max_places_per_day, stats_df,
+                         time_matrix, cost_matrix, places_df, best_solution)
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
+
+def solve_schedule(
+    ranked_places_df: pd.DataFrame,
+    province: str,
+    num_days: int,
+    budget_vnd: float,
+    budget_level: str = "mid_range",
+    time_limit_per_day: float = 10.0,
+    max_places_per_day: int = 3,
+    time_matrix: Optional[np.ndarray] = None,
+    cost_matrix: Optional[np.ndarray] = None,
+) -> Dict[str, Any]:
+    """
+    API chính: giải CSP để tạo lịch trình thoả mãn ràng buộc.
+    
+    Args:
+        ranked_places_df: DataFrame đã filter+rank từ filter_and_rank_places() (TV3)
+        province: Tỉnh du lịch
+        num_days: Số ngày
+        budget_vnd: Tổng ngân sách (VND)
+        budget_level: "budget" | "mid_range" | "premium"
+        time_limit_per_day: Số giờ tối đa mỗi ngày (mặc định 10h)
+        max_places_per_day: Số địa điểm tối đa mỗi ngày
+        time_matrix: Ma trận thời gian (None = tự load)
+        cost_matrix: Ma trận chi phí (None = tự load)
+    
+    Returns:
+        Dict:
+            "schedule": {1: [place_row, ...], 2: [...], ...}
+            "score": float tổng bayesian_score
+            "total_cost": float tổng chi phí ước tính
+            "feasible": bool
+    """
+    from modules.search import load_matrices, load_places
+
+    if time_matrix is None or cost_matrix is None:
+        _, cost_matrix, time_matrix = load_matrices()
+
+    places_df = load_places()
+    stats_df = load_hotel_price_stats()
+
+    # Sắp xếp domain theo score giảm dần (greedy ordering cho backtracking)
+    score_col = "bayesian_score" if "bayesian_score" in ranked_places_df.columns else "final_score"
+    domain_df = ranked_places_df.sort_values(score_col, ascending=False)
+    domain = [row for _, row in domain_df.iterrows()]
+
+    best_solution = {"schedule": {}, "score": -1, "total_cost": 0}
+
+    csp_backtrack(
+        day=1,
+        num_days=num_days,
+        domain=domain,
+        schedule={},
+        assigned_global=set(),
+        province=province,
+        budget_vnd=budget_vnd,
+        budget_level=budget_level,
+        time_limit_per_day=time_limit_per_day,
+        max_places_per_day=max_places_per_day,
+        stats_df=stats_df,
+        time_matrix=time_matrix,
+        cost_matrix=cost_matrix,
+        places_df=places_df,
+        best_solution=best_solution,
+    )
+
+    if best_solution["score"] < 0:
+        # Fallback: greedy nếu CSP không tìm được
+        return _greedy_schedule(domain_df, num_days, max_places_per_day)
+
+    return {
+        "schedule": best_solution["schedule"],
+        "score": best_solution["score"],
+        "total_cost": best_solution["total_cost"],
+        "feasible": True,
+    }
+
+
+def _greedy_schedule(domain_df: pd.DataFrame, num_days: int,
+                     max_per_day: int) -> Dict[str, Any]:
+    """Fallback: chia đều địa điểm theo ngày."""
+    schedule = {}
+    places = [row for _, row in domain_df.iterrows()]
+    idx = 0
+    for day in range(1, num_days + 1):
+        schedule[day] = []
+        for _ in range(max_per_day):
+            if idx < len(places):
+                schedule[day].append(places[idx])
+                idx += 1
+    return {"schedule": schedule, "score": 0, "total_cost": 0, "feasible": False}
+```
+
+### 10.5 Tích hợp vào `planner.py` — Thay thế stub greedy
+
+Sau khi viết xong `search.py` và `csp_solver.py`, TV2 cần **thay thế đoạn greedy** trong `plan_trip()` tại `modules/planner.py` ([dòng 288](modules/planner.py#L288)):
+
+**Tìm đoạn này trong `plan_trip()` (dòng ~288):**
+```python
+# Step 4: Phân chia địa điểm theo ngày (simple greedy — TV2 sẽ thay bằng A* + CSP)
+selected = ranked_places.head(max_places_per_day * num_days)
+daily_plan = {}
+for day in range(1, num_days + 1):
+    start_idx = (day - 1) * max_places_per_day
+    end_idx = min(day * max_places_per_day, len(selected))
+    day_places = selected.iloc[start_idx:end_idx]
+    daily_plan[f"Ngày {day}"] = day_places
+```
+
+**Thay bằng:**
+```python
+# Step 4 (B): CSP phân chia địa điểm → thoả mãn ràng buộc ngân sách + giờ
+from modules.csp_solver import solve_schedule
+from modules.search import load_matrices, load_places, find_optimal_daily_route
+
+_, cost_mat, time_mat = load_matrices()
+places_ref_df = load_places()
+
+# Xác định budget_level từ budget_vnd
+if budget_vnd < 1_000_000:
+    budget_level = "budget"
+elif budget_vnd < 3_000_000:
+    budget_level = "mid_range"
+else:
+    budget_level = "premium"
+
+csp_result = solve_schedule(
+    ranked_places_df=ranked_places,
+    province=province,
+    num_days=num_days,
+    budget_vnd=budget_vnd,
+    budget_level=budget_level,
+    time_limit_per_day=10.0,
+    max_places_per_day=max_places_per_day,
+    time_matrix=time_mat,
+    cost_matrix=cost_mat,
+)
+
+# Step 5 (A): A* tối ưu thứ tự tham quan trong từng ngày
+daily_plan = {}
+for day, day_places_list in csp_result["schedule"].items():
+    if not day_places_list:
+        daily_plan[f"Ngày {day}"] = pd.DataFrame()
+        continue
+
+    day_df = pd.DataFrame(day_places_list)
+
+    route_result = find_optimal_daily_route(
+        day_places_df=day_df,
+        places_df=places_ref_df,
+        time_matrix=time_mat,
+        cost_matrix=cost_mat,
+        time_limit_hours=10.0,
+        budget_vnd=budget_vnd * 0.3,  # 30% budget cho di chuyển/ngày
+    )
+
+    # Sắp xếp lại day_df theo thứ tự A* trả về
+    if route_result["route"] and len(route_result["route"]) > 0:
+        ordered_names = route_result["path_names"]
+        day_df["_order"] = day_df["place_name"].apply(
+            lambda n: ordered_names.index(n) if n in ordered_names else 999
+        )
+        day_df = day_df.sort_values("_order").drop(columns=["_order"])
+
+    daily_plan[f"Ngày {day}"] = day_df
+```
+
+### 10.6 Cập nhật phần import ở đầu `planner.py`
+
+Thêm vào đầu file (sau các import hiện tại):
+```python
+# TV2 sẽ uncomment khi search.py và csp_solver.py đã sẵn sàng:
+# from modules.search import find_optimal_daily_route, load_matrices, load_places
+# from modules.csp_solver import solve_schedule
+```
+
+### 10.7 Notebook — Section 7 + 8 cần thêm (TV2 tự viết)
+
+Sau khi hoàn thành `search.py` và `csp_solver.py`, TV2 cần thêm 2 sections vào `notebooks/main_notebook.ipynb`:
+
+**Section 7: Component (A) — A* Search**
+```python
+# Cell 7.1: Import và load data
+from modules.search import astar_route, load_matrices, load_places
+dist_mat, cost_mat, time_mat = load_matrices()
+places_df = load_places()
+
+# Cell 7.2: Demo A* — Tìm lộ trình 1 ngày
+# Cho 5 địa điểm Hà Nội (index 0-4), tìm thứ tự tối ưu
+result = astar_route(
+    start_idx=0,
+    candidates=[0, 1, 2, 3, 4],
+    places_df=places_df,
+    time_matrix=time_mat,
+    cost_matrix=cost_mat,
+    time_limit_hours=10.0,
+)
+print("Lộ trình tối ưu:", result["path_names"])
+print(f"Tổng thời gian: {result['total_time']:.1f} giờ")
+print(f"Chi phí di chuyển: {result['total_travel_cost']:,.0f} VND")
+
+# Cell 7.3: So sánh A* vs Greedy (biểu đồ bar chart: tổng thời gian)
+```
+
+**Section 8: Component (B) — CSP Solver**
+```python
+# Cell 8.1: Import và setup
+from modules.csp_solver import solve_schedule
+from modules.planner import filter_and_rank_places
+
+# Cell 8.2: Lấy ranked places (từ C+D)
+ranked, meta = filter_and_rank_places(
+    province="Da Nang", month=3, group_type="family",
+    budget_vnd=3_000_000, user_preferences=["beach", "culture"], num_days=3
+)
+
+# Cell 8.3: Chạy CSP solver
+schedule = solve_schedule(
+    ranked_places_df=ranked,
+    province="Da Nang",
+    num_days=3,
+    budget_vnd=3_000_000,
+    budget_level="mid_range",
+)
+
+for day, places in schedule["schedule"].items():
+    print(f"\nNgày {day}:")
+    for p in places:
+        print(f"  - {p['place_name']} ({p['category']}) — {p.get('entry_fee_vnd',0):,.0f} VND")
+print(f"\nTổng chi phí ước tính: {schedule['total_cost']:,.0f} VND")
+```
+
+### 10.8 Checklist hoàn thành cho TV2
+
+- [ ] Tạo branch `Huy` từ `main`: `git checkout -b Huy`
+- [ ] Tạo `modules/search.py` (copy template từ Mục 10.3 và điền)
+- [ ] Tạo `modules/csp_solver.py` (copy template từ Mục 10.4 và điền)
+- [ ] Thay đoạn greedy trong `planner.py` bằng code từ Mục 10.5
+- [ ] Thêm Section 7 (A*) và Section 8 (CSP) vào notebook
+- [ ] Chạy `Runtime → Run All` kiểm tra không lỗi
+- [ ] Push branch: `git push origin Huy`
+- [ ] Tạo Pull Request vào `main`
+
+> **Lưu ý**: Notebook phải chạy **Runtime → Run All** không lỗi (yêu cầu PDF Section 6). Dùng `try/except` bọc các cell demo A*/CSP nếu cần.
