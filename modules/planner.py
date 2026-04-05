@@ -3,18 +3,18 @@ planner.py — Module tích hợp tất cả thành phần AI cho hệ thống l
 
 Pipeline tổng:
     Input (user preferences)
-      → from modules.csp_solver import solve_schedule(E) ML phân loại user
-      → (D) Bayes dự đoán thời tiết
-      → (C) IF-THEN rules lọc địa điểm
-      → (B) CSP ràng buộc lịch trình
-      → (A) A* tìm route tối ưu
+      → (E) ML phân loại user (ml_models.py)
+      → (D) Bayes dự đoán thời tiết (bayesian_net.py)
+      → (C) IF-THEN rules lọc địa điểm (knowledge_base.py)
+      → (B) CSP ràng buộc lịch trình (csp_solver.py)
+      → (A) A* tìm route tối ưu (search.py)
       → Output (lịch trình tối ưu + giải thích)
 
 Module này tích hợp:
   - (C) Knowledge Base IF-THEN rules (knowledge_base.py)
   - (D) Bayesian Network (bayesian_net.py)
-  - (A) A* Search (search.py) — TODO: TV2
-  - (B) CSP Solver (csp_solver.py) — TODO: TV2
+  - (A) A* Search (search.py) — TV2: Trần Ngọc Khánh Huy
+  - (B) CSP Solver (csp_solver.py) — TV2: Trần Ngọc Khánh Huy
 """
 
 import os
@@ -636,9 +636,14 @@ def plan_trip(
                 print(f"  📍 {place['place_name']} ({place['category']}) "
                       f"— {place['province']} | {fee_str} | score={score}")
 
+        total_places = sum(
+            len(df) for df in daily_plan.values()
+            if isinstance(df, pd.DataFrame) and len(df) > 0
+        )
         print(f"\n{'=' * 70}")
-        print(f"✅ Tổng: {len(selected)} địa điểm / {num_days} ngày")
+        print(f"✅ Tổng: {total_places} địa điểm / {num_days} ngày")
         print(f"   Luật IF-THEN đã áp dụng: {metadata.get('rules_fired', 'N/A')}")
+        print(f"   CSP feasible: {csp_result.get('feasible', False)} | Score: {csp_result.get('score', 0):.3f}")
         print(f"{'=' * 70}")
 
     return result

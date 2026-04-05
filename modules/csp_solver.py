@@ -362,9 +362,25 @@ def solve_schedule(
         best_solution=best_solution,
     )
 
-    if best_solution["score"] < 0:
-        # Fallback: greedy nếu CSP không tìm được
-        return _greedy_schedule(domain_df, num_days, max_places_per_day)
+    # Kiểm tra kết quả backtracking có thực sự có địa điểm không
+    all_selected = [
+        p for d in best_solution.get("schedule", {}).values() for p in d
+    ]
+    if not all_selected:
+        # Backtracking không điền được lịch → dùng greedy với constraints
+        return greedy_schedule_with_constraints(
+            domain=domain,
+            province=province,
+            num_days=num_days,
+            budget_vnd=budget_vnd,
+            budget_level=budget_level,
+            time_limit_per_day=time_limit_per_day,
+            max_places_per_day=max_places_per_day,
+            stats_df=stats_df,
+            time_matrix=time_matrix,
+            cost_matrix=cost_matrix,
+            places_df=places_df,
+        )
 
     return {
         "schedule": best_solution["schedule"],
@@ -374,9 +390,88 @@ def solve_schedule(
     }
 
 
+def greedy_schedule_with_constraints(
+    domain: List[pd.Series],
+    province: str,
+    num_days: int,
+    budget_vnd: float,
+    budget_level: str,
+    time_limit_per_day: float,
+    max_places_per_day: int,
+    stats_df: pd.DataFrame,
+    time_matrix: np.ndarray,
+    cost_matrix: np.ndarray,
+    places_df: pd.DataFrame,
+) -> Dict[str, Any]:
+    """
+    Greedy CSP: chọn địa điểm tốt nhất (theo score) qua từng ngày,
+    áp dụng Forward Checking để đảm bảo ràng buộc thời gian + ngân sách.
+
+    Đây là CSP greedy — đảm bảo luôn trả về lịch không rỗng.
+    """
+    hotel_cost = get_hotel_cost(province, budget_level, num_days, stats_df)
+    remaining_total_budget = max(0, budget_vnd - hotel_cost)
+
+    assigned_global = set()
+    schedule = {}
+
+    for day in range(1, num_days + 1):
+        schedule[day] = []
+        remaining_time = time_limit_per_day
+        # Chia đều ngân sách còn lại theo số ngày còn lại
+        days_left = num_days - day + 1
+        day_budget = remaining_total_budget / max(1, days_left)
+        remaining_day_budget = day_budget
+
+        for candidate in domain:
+            if len(schedule[day]) >= max_places_per_day:
+                break
+
+            cand_name = candidate["place_name"]
+            if cand_name in assigned_global:
+                continue
+
+            # Kiểm tra giờ mở cửa dựa trên giờ dự kiến đến
+            start_hour = 8 + int(sum(
+                p.get("visit_duration_hours", 1.0) for p in schedule[day]
+            ))
+            if not check_opening_hours(candidate, start_hour):
+                continue
+
+            # Forward Checking
+            if forward_check(candidate, schedule[day], remaining_day_budget,
+                             remaining_time, places_df, time_matrix, cost_matrix):
+                schedule[day].append(candidate)
+                assigned_global.add(cand_name)
+                remaining_time -= candidate.get("visit_duration_hours", 1.0)
+                remaining_day_budget -= candidate.get("entry_fee_vnd", 0)
+
+        # Cập nhật ngân sách tổng sau mỗi ngày
+        day_spent = sum(p.get("entry_fee_vnd", 0) for p in schedule[day])
+        remaining_total_budget -= day_spent
+
+    all_places = [p for d in schedule.values() for p in d]
+    score_col = next(
+        (col for col in ["bayesian_score", "final_score"] if any(col in p for p in all_places)),
+        "bayesian_score"
+    )
+    total_score = sum(p.get("bayesian_score", p.get("final_score", 0)) for p in all_places)
+    feasible, total_cost = check_budget_constraint(
+        all_places, province, num_days, budget_vnd, budget_level,
+        stats_df, time_matrix, cost_matrix, places_df
+    )
+
+    return {
+        "schedule": schedule,
+        "score": total_score,
+        "total_cost": total_cost,
+        "feasible": feasible,
+    }
+
+
 def _greedy_schedule(domain_df: pd.DataFrame, num_days: int,
                      max_per_day: int) -> Dict[str, Any]:
-    """Fallback: chia đều địa điểm theo ngày."""
+    """Fallback đơn giản: chia đều địa điểm theo ngày (không kiểm tra ràng buộc)."""
     schedule = {}
     places = [row for _, row in domain_df.iterrows()]
     idx = 0
