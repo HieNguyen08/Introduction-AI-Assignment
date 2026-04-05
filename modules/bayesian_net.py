@@ -28,6 +28,44 @@ DEFAULT_P_OUTDOOR = 0.60
 DEFAULT_P_HOT = 0.20
 DEFAULT_P_HUMID = 0.40
 
+# Mapping từ tên tỉnh/thành (trong places data) → tên trạm khí tượng (trong weather data)
+# Weather data dùng tên thành phố/trạm đo, không phải tên tỉnh
+PROVINCE_TO_STATION: Dict[str, str] = {
+    # Tỉnh/thành → trạm khí tượng gần nhất có trong data
+    "da nang": "tam ky",          # Tam Ky (Quang Nam) gần nhất; Da Nang không có trong data
+    "khanh hoa": "nha trang",     # Nha Trang là thủ phủ Khánh Hòa
+    "lam dong": "da lat",         # Da Lat là thủ phủ Lâm Đồng
+    "quang ninh": "hong gai",     # Hạ Long / Hồng Gai là thủ phủ Quảng Ninh
+    "binh thuan": "phan thiet",   # Phan Thiết là thủ phủ Bình Thuận
+    "binh dinh": "qui nhon",      # Quy Nhơn là thủ phủ Bình Định
+    "kien giang": "rach gia",     # Rạch Giá là thủ phủ Kiên Giang
+    "quang nam": "tam ky",        # Tam Kỳ là thủ phủ Quảng Nam
+    "ba ria vung tau": "vung tau",
+    "dong nai": "bien hoa",
+    "long an": "tan an",
+    "tien giang": "my tho",
+    "an giang": "chau doc",
+    "phu yen": "tuy hoa",
+    "dak lak": "buon me thuot",
+    "gia lai": "play cu",
+    "ninh thuan": "phan rang",
+    "quang binh": "hue",          # Đồng Hới không có data → fallback Hue
+    "quang tri": "hue",           # Đông Hà không có data → fallback Hue
+    "thua thien hue": "hue",
+    "ninh binh": "nam dinh",      # Nam Định gần nhất
+    "lao cai": "yen bai",         # Yên Bái gần nhất có data
+    "ha giang": "yen bai",        # Yên Bái gần nhất có data
+    "cao bang": "thai nguyen",    # Thái Nguyên gần nhất
+    "son la": "hoa binh",         # Hòa Bình gần nhất
+    "phu tho": "viet tri",
+    "thai nguyen": "thai nguyen",
+    "yen bai": "yen bai",
+    "hoa binh": "hoa binh",
+    "hai duong": "hai duong",
+    "nam dinh": "nam dinh",
+    "cam ranh": "nha trang",      # Cam Ranh nằm trong Khánh Hòa
+}
+
 # Trọng số cho user preference model
 CATEGORY_AFFINITY = {
     # group_type -> category -> base_probability
@@ -238,24 +276,35 @@ class BayesianNetwork:
     def _find_weather_rows(self, province: str, month: int) -> "pd.DataFrame":
         """
         Tìm hàng thời tiết theo tỉnh và tháng.
-        Ưu tiên khớp chính xác (case-insensitive), fallback sang substring.
+        Ưu tiên: (1) khớp chính xác, (2) mapping trạm, (3) substring, (4) rỗng.
         """
         if self.weather_probs_df is None:
             return pd.DataFrame()
-        p_lower = province.lower()
+        p_lower = province.lower().strip()
         month_mask = self.weather_probs_df["month"] == month
-        # Khớp chính xác trước
+        # 1. Khớp chính xác trước
         exact = self.weather_probs_df[
             (self.weather_probs_df["province"].str.lower() == p_lower) & month_mask
         ]
         if len(exact) > 0:
             return exact
-        # Fallback: khớp substring (regex=False để tránh lỗi ký tự đặc biệt)
-        return self.weather_probs_df[
+        # 2. Dùng mapping tỉnh → trạm khí tượng
+        station = PROVINCE_TO_STATION.get(p_lower)
+        if station:
+            mapped = self.weather_probs_df[
+                (self.weather_probs_df["province"].str.lower() == station) & month_mask
+            ]
+            if len(mapped) > 0:
+                return mapped
+        # 3. Fallback: khớp substring (regex=False để tránh lỗi ký tự đặc biệt)
+        substr = self.weather_probs_df[
             self.weather_probs_df["province"].str.lower().str.contains(
                 p_lower, na=False, regex=False
             ) & month_mask
         ]
+        if len(substr) > 0:
+            return substr
+        return pd.DataFrame()
 
     def query_rain(self, province: str, month: int) -> float:
         """
