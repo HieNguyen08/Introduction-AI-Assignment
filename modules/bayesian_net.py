@@ -153,7 +153,55 @@ class BayesianNetwork:
         Province, Month → Hot
         Province, Month → Humid
         Category, Weather, Group_Type → User_Like
+
+    Class variable _PROVINCE_MAP: mapping tên tỉnh → tên trạm khí tượng.
+    Được định nghĩa tại class level (không phải module level) để đảm bảo
+    luôn accessible dù module được reload hay cache .pyc cũ.
     """
+
+    # Mapping tên tỉnh/thành → tên trạm khí tượng có trong weather_probabilities.csv
+    # Đặt ở class level để tránh vấn đề với module globals caching
+    _PROVINCE_MAP: dict = {
+        "da nang": "tam ky",
+        "khanh hoa": "nha trang",
+        "lam dong": "da lat",
+        "quang ninh": "hong gai",
+        "binh thuan": "phan thiet",
+        "binh dinh": "qui nhon",
+        "kien giang": "rach gia",
+        "quang nam": "tam ky",
+        "ba ria vung tau": "vung tau",
+        "dong nai": "bien hoa",
+        "long an": "tan an",
+        "tien giang": "my tho",
+        "an giang": "chau doc",
+        "phu yen": "tuy hoa",
+        "dak lak": "buon me thuot",
+        "gia lai": "play cu",
+        "ninh thuan": "phan rang",
+        "quang binh": "hue",
+        "quang tri": "hue",
+        "thua thien hue": "hue",
+        "ninh binh": "nam dinh",
+        "lao cai": "yen bai",
+        "ha giang": "yen bai",
+        "cao bang": "thai nguyen",
+        "son la": "hoa binh",
+        "phu tho": "viet tri",
+        "thai nguyen": "thai nguyen",
+        "yen bai": "yen bai",
+        "hoa binh": "hoa binh",
+        "hai duong": "hai duong",
+        "nam dinh": "nam dinh",
+        "cam ranh": "nha trang",
+        "ha noi": "ha noi",
+        "hanoi": "ha noi",
+        "ho chi minh": "ho chi minh city",
+        "ho chi minh city": "ho chi minh city",
+        "hai phong": "hai phong",
+        "hue": "hue",
+        "can tho": "can tho",
+    }
 
     def __init__(self):
         self.nodes: Dict[str, BayesNode] = {}
@@ -288,8 +336,8 @@ class BayesianNetwork:
         ]
         if len(exact) > 0:
             return exact
-        # 2. Dùng mapping tỉnh → trạm khí tượng
-        station = PROVINCE_TO_STATION.get(p_lower)
+        # 2. Dùng mapping tỉnh → trạm khí tượng (class variable, luôn accessible)
+        station = self._PROVINCE_MAP.get(p_lower)
         if station:
             mapped = self.weather_probs_df[
                 (self.weather_probs_df["province"].str.lower() == station) & month_mask
@@ -408,7 +456,7 @@ class BayesianNetwork:
         """
         Tính điểm Bayesian cho từng địa điểm du lịch.
 
-        Điểm = P(outdoor_ok | province, month) × P(user_like | category, group, rain)
+        Diem = P(outdoor_ok | province, month) * P(user_like | category, group, rain)
 
         Args:
             places_df: DataFrame các điểm du lịch (cần cột: province, category)
