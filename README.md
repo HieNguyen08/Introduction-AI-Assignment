@@ -100,5 +100,5 @@ Introduction-AI-Assignment/
 | | |
 |---|---|
 | **Google Colab** | [Mở notebook trên Colab](https://colab.research.google.com/github/HieNguyen08/Introduction-AI-Assignment/blob/main/notebooks/main_notebook.ipynb) |
-| **Báo cáo Overleaf** | [Overleaf](https://www.overleaf.com/6935761933tywyhjstsskf#35f45c) |
+| **Báo cáo Overleaf** | [Overleaf]([https://www.overleaf.com/6935761933tywyhjstsskf#35f45c](https://www.overleaf.com/read/sqvpsrgrqkjk#cdaad6)) |
 | **GitHub** | [HieNguyen08/Introduction-AI-Assignment](https://github.com/HieNguyen08/Introduction-AI-Assignment) |
